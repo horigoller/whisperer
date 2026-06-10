@@ -1,0 +1,7 @@
+{
+  "dotnet.dotnetPath": "/Users/hori/.dotnet/dotnet",
+  "omnisharp.dotNetCliPaths": ["/Users/hori/.dotnet"],
+  "terminal.integrated.env.osx": {
+    "PATH": "/Users/hori/.dotnet:${env:PATH}"
+  }
+}

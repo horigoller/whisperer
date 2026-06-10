@@ -2,5 +2,4 @@ bin/
 obj/
 *.user
 .vs/
-.vscode/
 *.swp
