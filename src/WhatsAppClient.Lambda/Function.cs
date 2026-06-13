@@ -76,9 +76,24 @@ public sealed class Function
                 return _messageService.SendTemplateMessageAsync(
                     input.To, input.TemplateName, input.LanguageCode, MapComponents(input.Components));
 
+            case "image":
+            case "document":
+            case "video":
+            case "audio":
+                if (string.IsNullOrWhiteSpace(input.MediaId) && string.IsNullOrWhiteSpace(input.MediaLink))
+                {
+                    throw new ArgumentException(
+                        $"'mediaId' or 'mediaLink' is required when messageType is '{input.MessageType}'.", nameof(input));
+                }
+
+                logger.LogInformation($"Sending {input.MessageType} message to {input.To}");
+                return _messageService.SendMediaMessageAsync(
+                    input.To, input.MessageType, input.MediaId, input.MediaLink, input.Caption, input.Filename);
+
             default:
                 throw new ArgumentException(
-                    $"Unsupported messageType '{input.MessageType}'. Expected 'text' or 'template'.", nameof(input));
+                    $"Unsupported messageType '{input.MessageType}'. Expected 'text', 'template', 'image', 'document', 'video', or 'audio'.",
+                    nameof(input));
         }
     }
 

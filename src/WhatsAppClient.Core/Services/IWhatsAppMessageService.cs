@@ -43,4 +43,42 @@ public interface IWhatsAppMessageService
     Task<SendWhatsAppMessageResult> SendMessageAsync(
         WhatsAppMessage message,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends a media message (image, document, video, or audio). Provide exactly one of
+    /// <paramref name="mediaId"/> (a handle from PostWhatsAppMessageMedia) or <paramref name="link"/>
+    /// (a public HTTPS URL). Like text, deliverable only within the 24h customer service window.
+    /// </summary>
+    /// <param name="to">The recipient's phone number in E.164 format.</param>
+    /// <param name="mediaType">One of "image", "document", "video", "audio".</param>
+    Task<SendWhatsAppMessageResult> SendMediaMessageAsync(
+        string to,
+        string mediaType,
+        string? mediaId = null,
+        string? link = null,
+        string? caption = null,
+        string? filename = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks an inbound message as read, showing the blue read-receipt ticks on the customer's
+    /// device. Pass the <c>id</c> of a received message.
+    /// </summary>
+    Task<SendWhatsAppMessageResult> MarkMessageReadAsync(
+        string messageId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reacts to a message the recipient previously sent you with an emoji. Pass an empty
+    /// <paramref name="emoji"/> to remove a previously sent reaction.
+    /// </summary>
+    /// <param name="to">The recipient's phone number in E.164 format, e.g. "+15551234567".</param>
+    /// <param name="messageId">The id of the message being reacted to ("wamid...").</param>
+    /// <param name="emoji">The reaction emoji, e.g. "👍".</param>
+    /// <param name="cancellationToken">A token to cancel the request.</param>
+    Task<SendWhatsAppMessageResult> SendReactionAsync(
+        string to,
+        string messageId,
+        string emoji,
+        CancellationToken cancellationToken = default);
 }

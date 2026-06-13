@@ -135,11 +135,42 @@ public class FunctionTests
         var function = CreateFunction();
 
         var result = await function.FunctionHandler(
+            new SendMessageInput { To = "+15551234567", MessageType = "carrier-pigeon" },
+            _context);
+
+        Assert.False(result.Success);
+        Assert.Contains("carrier-pigeon", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_WithImageMessage_CallsSendMediaMessage()
+    {
+        _messageService
+            .Setup(s => s.SendMediaMessageAsync(
+                "+15551234567", "image", "media-123", null, "A photo", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendWhatsAppMessageResult("wamid.img"));
+
+        var function = CreateFunction();
+
+        var result = await function.FunctionHandler(
+            new SendMessageInput { To = "+15551234567", MessageType = "image", MediaId = "media-123", Caption = "A photo" },
+            _context);
+
+        Assert.True(result.Success);
+        Assert.Equal("wamid.img", result.MessageId);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_WithImageMessage_MissingMedia_ReturnsFailure()
+    {
+        var function = CreateFunction();
+
+        var result = await function.FunctionHandler(
             new SendMessageInput { To = "+15551234567", MessageType = "image" },
             _context);
 
         Assert.False(result.Success);
-        Assert.Contains("image", result.ErrorMessage);
+        Assert.Contains("mediaId", result.ErrorMessage);
     }
 
     [Fact]

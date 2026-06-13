@@ -3,3 +3,9 @@ obj/
 *.user
 .vs/
 *.swp
+
+# SAM build artifacts
+.aws-sam/
+
+# Local Claude Code settings
+.claude/

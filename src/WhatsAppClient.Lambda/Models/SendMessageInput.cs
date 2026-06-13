@@ -39,6 +39,21 @@ public sealed class SendMessageInput
     /// Optional placeholder values for the template's components.
     /// </summary>
     public List<TemplateComponentInput>? Components { get; init; }
+
+    /// <summary>
+    /// For media message types ("image", "document", "video", "audio"): the media handle from
+    /// PostWhatsAppMessageMedia. Provide either this or <see cref="MediaLink"/>.
+    /// </summary>
+    public string? MediaId { get; init; }
+
+    /// <summary>For media message types: a public HTTPS URL to the media, as an alternative to <see cref="MediaId"/>.</summary>
+    public string? MediaLink { get; init; }
+
+    /// <summary>Optional caption for image/video/document messages.</summary>
+    public string? Caption { get; init; }
+
+    /// <summary>Optional filename for document messages.</summary>
+    public string? Filename { get; init; }
 }
 
 /// <summary>

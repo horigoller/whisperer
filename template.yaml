@@ -1,0 +1,225 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  End-to-end WhatsApp messaging on AWS End User Messaging Social: a send Lambda plus the
+  inbound (receive) pipeline — SNS event-destination topic -> SQS (+ DLQ) -> Lambda that
+  downloads media to S3, persists to DynamoDB, marks messages read, and fans out to EventBridge.
+
+Parameters:
+  OriginationPhoneNumberId:
+    Type: String
+    Description: >
+      The phone-number id of your WABA number linked to AWS End User Messaging Social
+      (format "phone-number-id-xxxxxxxx..."). Find it with GetLinkedWhatsAppBusinessAccount.
+  MetaApiVersion:
+    Type: String
+    Default: v21.0
+    Description: The Meta Graph API version used to format outgoing messages.
+
+Globals:
+  Function:
+    Runtime: dotnet8
+    Architectures:
+      - arm64
+    MemorySize: 256
+    Tracing: Active
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Inbound: event destination topic -> queue (+ DLQ) -> processing Lambda
+  # ---------------------------------------------------------------------------
+  WhatsAppEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: WhatsApp inbound events
+      # Point your WABA's event destination at this topic ARN (see Outputs / README).
+
+  WhatsAppInboundDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600 # 14 days
+
+  WhatsAppInboundQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180 # >= 6x the function timeout
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt WhatsAppInboundDlq.Arn
+        maxReceiveCount: 5
+
+  WhatsAppInboundQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref WhatsAppInboundQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSnsToSendMessage
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt WhatsAppInboundQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref WhatsAppEventsTopic
+
+  WhatsAppInboundSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref WhatsAppEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt WhatsAppInboundQueue.Arn
+      RawMessageDelivery: true
+
+  # ---------------------------------------------------------------------------
+  # Storage + fan-out
+  # ---------------------------------------------------------------------------
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: MessageId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: MessageId-index
+          KeySchema:
+            - AttributeName: MessageId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  WhatsAppEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub '${AWS::StackName}-whatsapp-inbound'
+
+  # ---------------------------------------------------------------------------
+  # Functions
+  # ---------------------------------------------------------------------------
+  ReceiveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/WhatsAppClient.ReceiveLambda/
+      Handler: WhatsAppClient.ReceiveLambda
+      Timeout: 30
+      Environment:
+        Variables:
+          WhatsApp__OriginationPhoneNumberId: !Ref OriginationPhoneNumberId
+          WhatsApp__MetaApiVersion: !Ref MetaApiVersion
+          Receive__MessagesTableName: !Ref MessagesTable
+          Receive__MediaBucketName: !Ref MediaBucket
+          Receive__EventBusName: !Ref WhatsAppEventBus
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MessagesTable
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref WhatsAppEventBus
+        - Statement:
+            - Effect: Allow
+              Action:
+                - social-messaging:SendWhatsAppMessage
+                - social-messaging:GetWhatsAppMessageMedia
+                - social-messaging:PostWhatsAppMessageMedia
+              Resource: '*'
+      Events:
+        Inbound:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt WhatsAppInboundQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  SendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/WhatsAppClient.Lambda/
+      Handler: WhatsAppClient.Lambda
+      Timeout: 15
+      Environment:
+        Variables:
+          WhatsApp__OriginationPhoneNumberId: !Ref OriginationPhoneNumberId
+          WhatsApp__MetaApiVersion: !Ref MetaApiVersion
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - social-messaging:SendWhatsAppMessage
+              Resource: '*'
+
+  AutoReplyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/WhatsAppClient.AutoReplyLambda/
+      Handler: WhatsAppClient.AutoReplyLambda
+      Timeout: 15
+      Environment:
+        Variables:
+          WhatsApp__OriginationPhoneNumberId: !Ref OriginationPhoneNumberId
+          WhatsApp__MetaApiVersion: !Ref MetaApiVersion
+          AutoReply__Message: "Thanks for your message! \U0001F44B We've received it and someone from Goller's Whisperer will get back to you shortly."
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - social-messaging:SendWhatsAppMessage
+              Resource: '*'
+      Events:
+        InboundMessage:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref WhatsAppEventBus
+            Pattern:
+              source:
+                - whatsapp.inbound
+              detail-type:
+                - MessageReceived
+
+Outputs:
+  EventsTopicArn:
+    Description: Set this ARN as your WABA's event destination in AWS End User Messaging Social.
+    Value: !Ref WhatsAppEventsTopic
+  EventBusName:
+    Description: EventBridge bus that normalized inbound events are published to.
+    Value: !Ref WhatsAppEventBus
+  MessagesTableName:
+    Value: !Ref MessagesTable
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  InboundQueueUrl:
+    Value: !Ref WhatsAppInboundQueue
+  InboundDlqUrl:
+    Value: !Ref WhatsAppInboundDlq
+  SendFunctionName:
+    Value: !Ref SendFunction
+  ReceiveFunctionName:
+    Value: !Ref ReceiveFunction
+  AutoReplyFunctionName:
+    Value: !Ref AutoReplyFunction

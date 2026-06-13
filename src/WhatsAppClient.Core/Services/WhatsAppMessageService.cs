@@ -99,7 +99,7 @@ public sealed class WhatsAppMessageService : IWhatsAppMessageService
     }
 
     /// <inheritdoc />
-    public async Task<SendWhatsAppMessageResult> SendMessageAsync(
+    public Task<SendWhatsAppMessageResult> SendMessageAsync(
         WhatsAppMessage message,
         CancellationToken cancellationToken = default)
     {
@@ -107,7 +107,87 @@ public sealed class WhatsAppMessageService : IWhatsAppMessageService
         ValidateRecipient(message.To);
 
         var payload = JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), SerializerOptions);
+        return SendRawAsync(payload, $"{message.Type} message to {Mask(message.To)}", cancellationToken);
+    }
 
+    /// <inheritdoc />
+    public Task<SendWhatsAppMessageResult> SendMediaMessageAsync(
+        string to,
+        string mediaType,
+        string? mediaId = null,
+        string? link = null,
+        string? caption = null,
+        string? filename = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRecipient(to);
+
+        if (string.IsNullOrWhiteSpace(mediaId) == string.IsNullOrWhiteSpace(link))
+        {
+            throw new ArgumentException("Provide exactly one of mediaId or link.", nameof(mediaId));
+        }
+
+        var media = new WhatsAppOutboundMedia { Id = mediaId, Link = link, Caption = caption, Filename = filename };
+
+        WhatsAppMessage message = mediaType.ToLowerInvariant() switch
+        {
+            "image" => new WhatsAppImageMessage { To = to, Image = media },
+            "document" => new WhatsAppDocumentMessage { To = to, Document = media },
+            "video" => new WhatsAppVideoMessage { To = to, Video = media },
+            "audio" => new WhatsAppAudioMessage { To = to, Audio = media },
+            _ => throw new ArgumentException(
+                $"Unsupported media type '{mediaType}'. Expected 'image', 'document', 'video', or 'audio'.",
+                nameof(mediaType)),
+        };
+
+        return SendMessageAsync(message, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SendWhatsAppMessageResult> MarkMessageReadAsync(
+        string messageId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            throw new ArgumentException("Message id must not be empty.", nameof(messageId));
+        }
+
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            new WhatsAppReadReceipt { MessageId = messageId }, SerializerOptions);
+        return SendRawAsync(payload, "read receipt", cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SendWhatsAppMessageResult> SendReactionAsync(
+        string to,
+        string messageId,
+        string emoji,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRecipient(to);
+
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            throw new ArgumentException("Message id must not be empty.", nameof(messageId));
+        }
+
+        ArgumentNullException.ThrowIfNull(emoji);
+
+        var message = new WhatsAppReactionMessage
+        {
+            To = to,
+            Reaction = new WhatsAppReaction { MessageId = messageId, Emoji = emoji },
+        };
+
+        return SendMessageAsync(message, cancellationToken);
+    }
+
+    private async Task<SendWhatsAppMessageResult> SendRawAsync(
+        byte[] payload,
+        string description,
+        CancellationToken cancellationToken)
+    {
         using var stream = new MemoryStream(payload);
         var request = new SendWhatsAppMessageRequest
         {
@@ -116,8 +196,7 @@ public sealed class WhatsAppMessageService : IWhatsAppMessageService
             Message = stream,
         };
 
-        _logger.LogInformation(
-            "Sending WhatsApp {MessageType} message to {Recipient}", message.Type, Mask(message.To));
+        _logger.LogInformation("Sending WhatsApp {Description}", description);
 
         try
         {
@@ -129,8 +208,7 @@ public sealed class WhatsAppMessageService : IWhatsAppMessageService
         }
         catch (AmazonSocialMessagingException ex)
         {
-            _logger.LogError(
-                ex, "Failed to send WhatsApp {MessageType} message to {Recipient}", message.Type, Mask(message.To));
+            _logger.LogError(ex, "Failed to send WhatsApp {Description}", description);
             throw new WhatsAppMessageException($"Failed to send WhatsApp message: {ex.Message}", ex);
         }
     }

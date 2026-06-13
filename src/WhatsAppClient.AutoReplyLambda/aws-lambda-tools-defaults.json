@@ -1,0 +1,17 @@
+{
+  "Information": [
+    "This file provides default values for the AWS Lambda commands added to the .NET Core CLI.",
+    "dotnet lambda help"
+  ],
+  "profile": "",
+  "region": "",
+  "configuration": "Release",
+  "function-architecture": "arm64",
+  "function-runtime": "dotnet8",
+  "function-memory-size": 256,
+  "function-timeout": 15,
+  "function-handler": "WhatsAppClient.AutoReplyLambda",
+  "function-name": "whatsapp-auto-reply",
+  "function-description": "Auto-replies to inbound WhatsApp messages via an EventBridge rule.",
+  "framework": "net8.0"
+}
