@@ -1,0 +1,17 @@
+{
+  "Information": [
+    "This file provides default values for the AWS Lambda commands added to the .NET Core CLI.",
+    "dotnet lambda help"
+  ],
+  "profile": "",
+  "region": "",
+  "configuration": "Release",
+  "function-architecture": "arm64",
+  "function-runtime": "dotnet8",
+  "function-memory-size": 512,
+  "function-timeout": 30,
+  "function-handler": "WhatsAppClient.Api",
+  "function-name": "whatsapp-app-api",
+  "function-description": "WhatsApp management console API + SPA host.",
+  "framework": "net8.0"
+}

@@ -7,5 +7,9 @@ obj/
 # SAM build artifacts
 .aws-sam/
 
+# Node / web build
+node_modules/
+dist/
+
 # Local Claude Code settings
 .claude/

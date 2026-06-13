@@ -1,0 +1,17 @@
+{
+  "Information": [
+    "This file provides default values for the AWS Lambda commands added to the .NET Core CLI.",
+    "dotnet lambda help"
+  ],
+  "profile": "",
+  "region": "",
+  "configuration": "Release",
+  "function-architecture": "arm64",
+  "function-runtime": "dotnet8",
+  "function-memory-size": 256,
+  "function-timeout": 30,
+  "function-handler": "WhatsAppClient.AppIngestLambda",
+  "function-name": "whatsapp-app-ingest",
+  "function-description": "Projects inbound WhatsApp events into the app single-table store.",
+  "framework": "net8.0"
+}

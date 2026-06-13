@@ -1,0 +1,137 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { api, ApiError, type ChatMessage, type Conversation as Conv, type ApprovedTemplate } from "../api";
+import { clockTime, windowOpen } from "../format";
+
+export function Conversation() {
+  const { waId = "" } = useParams();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conv, setConv] = useState<Conv | null>(null);
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [showTemplate, setShowTemplate] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    const r = await api.thread(waId);
+    setMessages(r.messages);
+    setConv(r.conversation);
+  }, [waId]);
+
+  useEffect(() => {
+    load().catch(() => {});
+    const t = setInterval(() => load().catch(() => {}), 6000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
+
+  const open = windowOpen(conv?.windowExpiresAt ?? null);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setError(null);
+    try {
+      await api.reply(waId, text.trim());
+      setText("");
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) setError("The 24h window is closed. Start a template exchange.");
+      else setError("Failed to send.");
+    }
+  }
+
+  return (
+    <div className="thread">
+      <header className="thread-head">
+        <div>{conv?.name ?? `+${waId}`}</div>
+        <span className={open ? "pill open" : "pill closed"}>{open ? "window open" : "window closed"}</span>
+      </header>
+
+      <div className="messages">
+        {messages.map((m) => (
+          <div key={m.id} className={`bubble ${m.direction}`}>
+            <div className="bubble-text">{m.text ?? (m.mediaId ? `[${m.type}]` : "—")}</div>
+            <div className="bubble-meta">
+              {clockTime(m.createdAt)}
+              {m.direction === "out" && <span className="status"> · {m.status}</span>}
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+
+      {error && <div className="error pad">{error}</div>}
+
+      {open ? (
+        <form className="composer" onSubmit={send}>
+          <input placeholder="Type a reply…" value={text} onChange={(e) => setText(e.target.value)} />
+          <button disabled={!text.trim()}>Send</button>
+        </form>
+      ) : (
+        <div className="composer closed-note">
+          <span>Outside the 24h window — replies are blocked.</span>
+          <button onClick={() => setShowTemplate(true)}>Start template exchange</button>
+        </div>
+      )}
+
+      {showTemplate && <TemplateDialog waId={waId} onClose={() => setShowTemplate(false)} onSent={() => { setShowTemplate(false); load(); }} />}
+    </div>
+  );
+}
+
+function TemplateDialog({ waId, onClose, onSent }: { waId: string; onClose: () => void; onSent: () => void }) {
+  const [templates, setTemplates] = useState<ApprovedTemplate[]>([]);
+  const [name, setName] = useState("");
+  const [language, setLanguage] = useState("en_US");
+  const [params, setParams] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.templates().then((r) => {
+      setTemplates(r.templates);
+      if (r.templates[0]) { setName(r.templates[0].name); setLanguage(r.templates[0].language ?? "en_US"); }
+    }).catch(() => {});
+  }, []);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const p = params.split(",").map((s) => s.trim()).filter(Boolean);
+      await api.sendTemplate(waId, name, language, p);
+      onSent();
+    } catch {
+      setError("Failed to send template.");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <form className="card modal" onClick={(e) => e.stopPropagation()} onSubmit={send}>
+        <h3>Start template exchange</h3>
+        {templates.length === 0 ? (
+          <p className="muted">No approved templates yet. Create and approve one in WhatsApp Manager.</p>
+        ) : (
+          <>
+            <label>Template
+              <select value={name} onChange={(e) => {
+                setName(e.target.value);
+                const t = templates.find((x) => x.name === e.target.value);
+                if (t?.language) setLanguage(t.language);
+              }}>
+                {templates.map((t) => <option key={t.name} value={t.name}>{t.name} ({t.category})</option>)}
+              </select>
+            </label>
+            <label>Language <input value={language} onChange={(e) => setLanguage(e.target.value)} /></label>
+            <label>Body params (comma-separated) <input value={params} onChange={(e) => setParams(e.target.value)} placeholder="Hori" /></label>
+            <button>Send</button>
+          </>
+        )}
+        <button type="button" className="link" onClick={onClose}>Cancel</button>
+        {error && <div className="error">{error}</div>}
+      </form>
+    </div>
+  );
+}

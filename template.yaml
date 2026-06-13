@@ -15,6 +15,18 @@ Parameters:
     Type: String
     Default: v21.0
     Description: The Meta Graph API version used to format outgoing messages.
+  WabaId:
+    Type: String
+    Default: ""
+    Description: WABA id (waba-...), used by the console to list approved templates.
+  BootstrapAdminUsername:
+    Type: String
+    Default: ""
+    Description: Username seeded as the first admin on first login (when no users exist).
+  BootstrapAdminPhone:
+    Type: String
+    Default: ""
+    Description: E.164 WhatsApp number for the bootstrap admin's login codes.
 
 Globals:
   Function:
@@ -202,6 +214,119 @@ Resources:
               detail-type:
                 - MessageReceived
 
+  # ---------------------------------------------------------------------------
+  # Management console: single-table store, SPA bucket, API + ingest Lambdas
+  # ---------------------------------------------------------------------------
+  AppTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  AppSessionSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: HS256 signing secret for management-console session JWTs.
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/WhatsAppClient.Api/
+      Handler: WhatsAppClient.Api
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          WhatsApp__OriginationPhoneNumberId: !Ref OriginationPhoneNumberId
+          WhatsApp__MetaApiVersion: !Ref MetaApiVersion
+          App__TableName: !Ref AppTable
+          App__WebBucketName: !Ref WebBucket
+          App__SessionSecretArn: !Ref AppSessionSecret
+          App__WabaId: !Ref WabaId
+          App__BootstrapAdminUsername: !Ref BootstrapAdminUsername
+          App__BootstrapAdminPhone: !Ref BootstrapAdminPhone
+      FunctionUrlConfig:
+        AuthType: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AppTable
+        - S3ReadPolicy:
+            BucketName: !Ref WebBucket
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref AppSessionSecret
+        - Statement:
+            - Effect: Allow
+              Action:
+                - social-messaging:SendWhatsAppMessage
+                - social-messaging:ListWhatsAppMessageTemplates
+                - social-messaging:GetWhatsAppMessageTemplate
+              Resource: '*'
+
+  AppIngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/WhatsAppClient.AppIngestLambda/
+      Handler: WhatsAppClient.AppIngestLambda
+      Timeout: 30
+      Environment:
+        Variables:
+          App__TableName: !Ref AppTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AppTable
+      Events:
+        Inbound:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref WhatsAppEventBus
+            Pattern:
+              source:
+                - whatsapp.inbound
+              detail-type:
+                - MessageReceived
+                - StatusUpdated
+
 Outputs:
   EventsTopicArn:
     Description: Set this ARN as your WABA's event destination in AWS End User Messaging Social.
@@ -223,3 +348,11 @@ Outputs:
     Value: !Ref ReceiveFunction
   AutoReplyFunctionName:
     Value: !Ref AutoReplyFunction
+  AppUrl:
+    Description: Open this URL to use the management console.
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  WebBucketName:
+    Description: Sync the built React app here (app/deploy-web.sh).
+    Value: !Ref WebBucket
+  AppTableName:
+    Value: !Ref AppTable
