@@ -36,10 +36,18 @@ public sealed class StaticSite
     public async Task<(int Status, byte[] Body, string Type)> ServeAsync(string path, CancellationToken ct = default)
     {
         var key = Normalize(path);
-        var asset = await FetchAsync(key, ct) ?? await FetchAsync("index.html", ct);
+        var asset = await FetchAsync(key, ct);
         if (asset is null)
         {
-            return (404, System.Text.Encoding.UTF8.GetBytes("Not found"), "text/plain");
+            // A missing file with an extension (e.g. /assets/app.js) is a real 404, not an SPA route —
+            // returning index.html there would serve HTML as if it were JS/CSS. Only extensionless
+            // paths fall back to the SPA shell for client-side routing.
+            if (Path.HasExtension(key))
+            {
+                return (404, System.Text.Encoding.UTF8.GetBytes("Not found"), "text/plain");
+            }
+            asset = await FetchAsync("index.html", ct);
+            if (asset is null) return (404, System.Text.Encoding.UTF8.GetBytes("Not found"), "text/plain");
         }
         return (200, asset.Value.Body, asset.Value.Type);
     }

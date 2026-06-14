@@ -34,8 +34,9 @@ public sealed class AuthService
         var challengeId = Guid.NewGuid().ToString();
         var user = await ResolveUserAsync(username, ct);
 
-        // No user enumeration: always return a challengeId; only send a code if the user exists.
-        if (user is { Status: "active" })
+        // No user enumeration: always return a challengeId; only send a code if the user exists
+        // and isn't in a cooldown (so the public endpoint can't be used to spam login codes).
+        if (user is { Status: "active" } && await _repo.TryStartLoginAsync(user.Username, LoginCodes.CooldownSeconds, ct))
         {
             var code = LoginCodes.Generate();
             await _repo.PutAuthChallengeAsync(new AuthChallenge

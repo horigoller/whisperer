@@ -12,8 +12,9 @@ public class AppIngestProcessorTests
     private AppIngestProcessor Processor() => new(_repo, NullLogger<AppIngestProcessor>.Instance);
 
     [Fact]
-    public async Task MessageReceived_SelfRegistersContact_StoresMessage_OpensWindow()
+    public async Task MessageReceived_SelfRegistersContact_StoresMessage_OpensWindowFromMessageTime()
     {
+        var sentAt = DateTimeOffset.UtcNow.AddMinutes(-5);
         var evt = new AppInboundEvent
         {
             DetailType = "MessageReceived",
@@ -22,7 +23,7 @@ public class AppIngestProcessorTests
                 ContactName = "Diego",
                 Message = new WhatsAppInboundMessage
                 {
-                    From = "15551239999", Id = "wamid.IN", Timestamp = "1700000000", Type = "text",
+                    From = "15551239999", Id = "wamid.IN", Timestamp = sentAt.ToUnixTimeSeconds().ToString(), Type = "text",
                     Text = new WhatsAppInboundText { Body = "Hello" },
                 },
             },
@@ -41,7 +42,9 @@ public class AppIngestProcessorTests
 
         var conv = _repo.Conversations["15551239999"];
         Assert.Equal(1, conv.Unread);
-        Assert.True(DateTimeOffset.Parse(conv.WindowExpiresAt!) > DateTimeOffset.UtcNow);
+        // Window = message time + 24h (not processing time).
+        var expected = sentAt.AddHours(24);
+        Assert.True((DateTimeOffset.Parse(conv.WindowExpiresAt!) - expected).Duration() < TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -70,20 +73,37 @@ public class AppIngestProcessorTests
     }
 
     [Fact]
-    public async Task StatusUpdated_PatchesSentMessage()
+    public async Task StatusUpdated_CorrelatesByOpaqueRef_AndRecordsWamid()
     {
         await _repo.PutMessageAsync(new ChatMessage
         {
             WaId = "15551239999", Id = "local-1", Direction = "out", Type = "text", Text = "hi",
-            Status = "sent", WaMessageId = "wamid.OUT", SentBy = "agent1", CreatedAt = "t",
+            Status = "sent", WaMessageId = "aws-send-id", SentBy = "agent1", CreatedAt = "t",
         });
 
         await Processor().ProcessAsync(new AppInboundEvent
         {
             DetailType = "StatusUpdated",
-            Detail = new AppInboundDetail { Status = new WhatsAppStatus { Id = "wamid.OUT", Status = "delivered" } },
+            Detail = new AppInboundDetail
+            {
+                // biz_opaque_callback_data echoes our message id; status.id is the Meta wamid.
+                Status = new WhatsAppStatus { Id = "wamid.OUT", Status = "delivered", BizOpaqueCallbackData = "local-1" },
+            },
         });
 
-        Assert.Equal("delivered", (await _repo.ListMessagesAsync("15551239999"))[0].Status);
+        var m = (await _repo.ListMessagesAsync("15551239999"))[0];
+        Assert.Equal("delivered", m.Status);
+        Assert.Equal("wamid.OUT", m.WaMessageId); // wamid recorded once learned
+    }
+
+    [Fact]
+    public async Task StatusUpdated_WithoutOpaqueRef_IsIgnored()
+    {
+        await Processor().ProcessAsync(new AppInboundEvent
+        {
+            DetailType = "StatusUpdated",
+            Detail = new AppInboundDetail { Status = new WhatsAppStatus { Id = "wamid.X", Status = "read" } },
+        });
+        // No throw, nothing to correlate.
     }
 }

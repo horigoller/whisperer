@@ -12,14 +12,14 @@ public class ConversationServiceTests
     private const string WaId = "15551230000";
     private readonly InMemoryAppRepository _repo = new();
     private readonly Mock<IWhatsAppMessageService> _whatsapp = new();
+    private WhatsAppMessage? _sent;
 
     public ConversationServiceTests()
     {
         _repo.Contacts[WaId] = new Contact { WaId = WaId, PhoneE164 = $"+{WaId}", Name = "Cust", Source = "self" };
-        _whatsapp.Setup(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SendWhatsAppMessageResult("wamid.out"));
-        _whatsapp.Setup(w => w.SendTemplateMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<WhatsAppTemplateComponent>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new SendWhatsAppMessageResult("wamid.tmpl"));
+        _whatsapp.Setup(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<WhatsAppMessage, CancellationToken>((m, _) => _sent = m)
+            .ReturnsAsync(new SendWhatsAppMessageResult("aws-send-id"));
     }
 
     private ConversationService Svc() => new(_repo, _whatsapp.Object);
@@ -34,11 +34,11 @@ public class ConversationServiceTests
         };
 
         await Assert.ThrowsAsync<WindowClosedException>(() => Svc().ReplyAsync(WaId, "hi", "agent1"));
-        _whatsapp.Verify(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _whatsapp.Verify(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task ReplyAsync_WindowOpen_SendsAndPersists()
+    public async Task ReplyAsync_WindowOpen_SendsWithOpaqueIdAndPersists()
     {
         _repo.Conversations[WaId] = new Conversation
         {
@@ -48,21 +48,23 @@ public class ConversationServiceTests
 
         var msg = await Svc().ReplyAsync(WaId, "hello back", "agent1");
 
+        var text = Assert.IsType<WhatsAppTextMessage>(_sent);
+        Assert.Equal($"+{WaId}", text.To);
+        Assert.Equal("hello back", text.Text.Body);
+        Assert.Equal(msg.Id, text.BizOpaqueCallbackData); // opaque correlation == stored id
         Assert.Equal("out", msg.Direction);
-        Assert.Equal("agent1", msg.SentBy);
-        _whatsapp.Verify(w => w.SendTextMessageAsync($"+{WaId}", "hello back", It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
-        var stored = await _repo.ListMessagesAsync(WaId);
-        Assert.Single(stored);
+        Assert.Single(await _repo.ListMessagesAsync(WaId));
     }
 
     [Fact]
-    public async Task SendTemplateAsync_WorksWithoutOpenWindow()
+    public async Task SendTemplateAsync_WorksWithoutOpenWindow_AndSetsOpaqueId()
     {
         var msg = await Svc().SendTemplateAsync(WaId, "first_contact_greeting", "en_US", ["Hori"], "agent1");
 
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        Assert.Equal("first_contact_greeting", tmpl.Template.Name);
+        Assert.Equal(msg.Id, tmpl.BizOpaqueCallbackData);
         Assert.Equal("template", msg.Type);
-        Assert.Equal("first_contact_greeting", msg.TemplateName);
-        _whatsapp.Verify(w => w.SendTemplateMessageAsync($"+{WaId}", "first_contact_greeting", "en_US", It.IsAny<IReadOnlyList<WhatsAppTemplateComponent>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

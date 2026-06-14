@@ -16,6 +16,9 @@ public interface ISessionTokenService
 public sealed class SessionTokenService : ISessionTokenService
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromHours(12);
+    // Reused across calls; ValidateToken/WriteToken don't mutate handler state. Keep raw JWT claim
+    // names ("sub"/"role"/"name") instead of the legacy SOAP mappings.
+    private static readonly JwtSecurityTokenHandler Handler = new() { MapInboundClaims = false };
     private readonly ISessionSecretProvider _secretProvider;
 
     public SessionTokenService(ISessionSecretProvider secretProvider) => _secretProvider = secretProvider;
@@ -32,7 +35,7 @@ public sealed class SessionTokenService : ISessionTokenService
             ],
             expires: DateTime.UtcNow.Add(Lifetime),
             signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return Handler.WriteToken(token);
     }
 
     public async Task<SessionUser?> ValidateAsync(string token, CancellationToken ct = default)
@@ -40,9 +43,7 @@ public sealed class SessionTokenService : ISessionTokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(await _secretProvider.GetSecretAsync(ct)));
         try
         {
-            // Keep raw JWT claim names ("sub"/"role"/"name") instead of the legacy SOAP mappings.
-            var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
-            var principal = handler.ValidateToken(token, new TokenValidationParameters
+            var principal = Handler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuer = false,
                 ValidateAudience = false,

@@ -31,9 +31,12 @@ public sealed class AppIngestProcessor
                 await IngestMessageAsync(message, evt.Detail.ContactName, evt.Detail.MediaS3Key, ct);
                 break;
 
-            case "StatusUpdated" when evt.Detail?.Status is { Id: { } id, Status: { } status }:
-                if (!await _repo.PatchMessageStatusByWaMessageIdAsync(id, status, ct))
-                    _logger.LogInformation("No stored message for status {Status} of {Id}", status, id);
+            case "StatusUpdated" when evt.Detail?.Status is { Status: { } status } s:
+                // Correlate by the opaque id we stamped on send; the status also carries the Meta wamid.
+                if (string.IsNullOrEmpty(s.BizOpaqueCallbackData))
+                    _logger.LogInformation("Status {Status} for {Id} has no biz_opaque_callback_data; cannot correlate", status, s.Id);
+                else if (!await _repo.PatchMessageStatusByRefAsync(s.BizOpaqueCallbackData, status, s.Id, ct))
+                    _logger.LogInformation("No stored message for opaque ref {Ref}", s.BizOpaqueCallbackData);
                 break;
 
             default:
@@ -52,9 +55,10 @@ public sealed class AppIngestProcessor
             return;
         }
 
-        var createdAt = long.TryParse(message.Timestamp, out var unix)
-            ? DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime.ToString("o")
-            : DateTime.UtcNow.ToString("o");
+        var messageTime = long.TryParse(message.Timestamp, out var unix)
+            ? DateTimeOffset.FromUnixTimeSeconds(unix)
+            : DateTimeOffset.UtcNow;
+        var createdAt = messageTime.UtcDateTime.ToString("o");
 
         var existingContact = await _repo.GetContactAsync(waId, ct);
         if (existingContact is null)
@@ -96,7 +100,8 @@ public sealed class AppIngestProcessor
             Name = contactName ?? existingConv?.Name ?? existingContact?.Name,
             LastPreview = text ?? $"[{message.Type}]",
             LastActivityAt = createdAt,
-            WindowExpiresAt = DateTime.UtcNow.Add(Window).ToString("o"),
+            // Window runs 24h from when the customer sent the message, not from when we processed it.
+            WindowExpiresAt = messageTime.Add(Window).UtcDateTime.ToString("o"),
             Unread = (existingConv?.Unread ?? 0) + 1,
         }, ct);
     }

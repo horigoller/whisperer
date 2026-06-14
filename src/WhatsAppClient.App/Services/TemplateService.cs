@@ -9,6 +9,11 @@ public sealed record ApprovedTemplate(string Name, string? Language, string? Cat
 
 public sealed class TemplateService
 {
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+    private static volatile CacheEntry? _cache; // shared across the container's scoped instances
+
+    private sealed record CacheEntry(DateTimeOffset At, IReadOnlyList<ApprovedTemplate> Templates);
+
     private readonly IAmazonSocialMessaging _client;
     private readonly AppOptions _options;
 
@@ -18,10 +23,13 @@ public sealed class TemplateService
         _options = options.Value;
     }
 
-    /// <summary>Approved templates for the "initiate utility exchange" picker.</summary>
+    /// <summary>Approved templates for the "initiate utility exchange" picker (cached ~60s).</summary>
     public async Task<IReadOnlyList<ApprovedTemplate>> ListApprovedAsync(CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(_options.WabaId)) return [];
+
+        var cached = _cache;
+        if (cached is not null && DateTimeOffset.UtcNow - cached.At < CacheTtl) return cached.Templates;
 
         var result = new List<ApprovedTemplate>();
         string? nextToken = null;
@@ -39,6 +47,7 @@ public sealed class TemplateService
             nextToken = r.NextToken;
         } while (!string.IsNullOrEmpty(nextToken));
 
+        _cache = new CacheEntry(DateTimeOffset.UtcNow, result);
         return result;
     }
 }

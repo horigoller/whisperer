@@ -67,8 +67,14 @@ var convos = api.MapGroup("/conversations").AddEndpointFilter(Security.AuthFilte
 
 convos.MapGet("/", async (ConversationService svc) => Results.Ok(new { conversations = await svc.ListAsync() }));
 
-convos.MapGet("/{waId}/messages", async (string waId, ConversationService svc) =>
+convos.MapGet("/{waId}/messages", async (string waId, ConversationService svc, HttpContext http) =>
 {
+    // Incremental poll: ?after=<createdAt> returns only newer messages (no conversation/unread work).
+    var after = http.Request.Query["after"].ToString();
+    if (!string.IsNullOrEmpty(after))
+    {
+        return Results.Ok(new { messages = await svc.GetNewMessagesAsync(waId, after) });
+    }
     var (messages, conversation) = await svc.GetThreadAsync(waId);
     return Results.Ok(new { messages, conversation });
 });

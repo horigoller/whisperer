@@ -172,10 +172,11 @@ public sealed class DynamoAppRepository : IAppRepository
         if (!string.IsNullOrEmpty(m.MediaS3Key)) item["MediaS3Key"] = S(m.MediaS3Key);
         if (!string.IsNullOrEmpty(m.SentBy)) item["SentBy"] = S(m.SentBy);
         if (!string.IsNullOrEmpty(m.TemplateName)) item["TemplateName"] = S(m.TemplateName);
-        if (!string.IsNullOrEmpty(m.WaMessageId))
+        if (!string.IsNullOrEmpty(m.WaMessageId)) item["WaMessageId"] = S(m.WaMessageId);
+        // Outbound messages are looked up by their id (= biz_opaque_callback_data) when a status arrives.
+        if (m.Direction == "out")
         {
-            item["WaMessageId"] = S(m.WaMessageId);
-            item["GSI1PK"] = S($"WAMSG#{m.WaMessageId}");
+            item["GSI1PK"] = S($"MSGREF#{m.Id}");
             item["GSI1SK"] = S(m.WaId);
         }
         return _db.PutItemAsync(new PutItemRequest { TableName = _table, Item = item }, ct);
@@ -192,30 +193,84 @@ public sealed class DynamoAppRepository : IAppRepository
         return items.Select(ReadMessage).ToList();
     }
 
-    public async Task<bool> PatchMessageStatusByWaMessageIdAsync(string waMessageId, string status, CancellationToken ct = default)
+    public async Task<IReadOnlyList<ChatMessage>> ListMessagesAfterAsync(
+        string waId, string afterCreatedAt, CancellationToken ct = default)
+    {
+        // SK is "MSG#<createdAt>#<id>"; with ISO timestamps the lexical order matches time order,
+        // so "SK > MSG#<after>" returns only messages newer than the caller's last-seen timestamp.
+        var items = await PaginateAsync(new QueryRequest
+        {
+            TableName = _table,
+            KeyConditionExpression = "PK = :p AND SK > :after",
+            // No id suffix: include any message at the boundary timestamp (the client dedups by id).
+            ExpressionAttributeValues = new() { [":p"] = S(ContactPk(waId)), [":after"] = S($"MSG#{afterCreatedAt}") },
+        }, ct);
+        return items.Select(ReadMessage).ToList();
+    }
+
+    public async Task<bool> PatchMessageStatusByRefAsync(
+        string opaqueId, string status, string? metaMessageId, CancellationToken ct = default)
     {
         var r = await _db.QueryAsync(new QueryRequest
         {
             TableName = _table,
             IndexName = Gsi1,
             KeyConditionExpression = "GSI1PK = :p",
-            ExpressionAttributeValues = new() { [":p"] = S($"WAMSG#{waMessageId}") },
+            ExpressionAttributeValues = new() { [":p"] = S($"MSGREF#{opaqueId}") },
             Limit = 1,
         }, ct);
         var item = r.Items.FirstOrDefault();
         if (item is null) return false;
+
+        var update = "SET #s = :s";
+        var values = new Dictionary<string, AttributeValue> { [":s"] = S(status) };
+        var names = new Dictionary<string, string> { ["#s"] = "Status" };
+        if (!string.IsNullOrEmpty(metaMessageId))
+        {
+            update += ", WaMessageId = :m"; // record the real Meta wamid once we learn it
+            values[":m"] = S(metaMessageId);
+        }
         await _db.UpdateItemAsync(new UpdateItemRequest
         {
             TableName = _table,
             Key = new() { ["PK"] = item["PK"], ["SK"] = item["SK"] },
-            UpdateExpression = "SET #s = :s",
-            ExpressionAttributeNames = new() { ["#s"] = "Status" },
-            ExpressionAttributeValues = new() { [":s"] = S(status) },
+            UpdateExpression = update,
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values,
         }, ct);
         return true;
     }
 
-    // ---- Auth challenges ----------------------------------------------------
+    // ---- Auth rate limit + challenges --------------------------------------
+    public async Task<bool> TryStartLoginAsync(string username, int cooldownSeconds, CancellationToken ct = default)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        try
+        {
+            // Conditional put: succeed only if no marker exists or the existing one has expired.
+            // (DynamoDB TTL deletion is lazy, so the condition checks ttl rather than relying on it.)
+            await _db.PutItemAsync(new PutItemRequest
+            {
+                TableName = _table,
+                Item = new()
+                {
+                    ["PK"] = S($"RATE#{username.ToLowerInvariant()}"),
+                    ["SK"] = S("LOGIN"),
+                    ["entity"] = S("rate"),
+                    ["ttl"] = N(now + cooldownSeconds),
+                },
+                ConditionExpression = "attribute_not_exists(PK) OR #t < :now",
+                ExpressionAttributeNames = new() { ["#t"] = "ttl" },
+                ExpressionAttributeValues = new() { [":now"] = N(now) },
+            }, ct);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
     public Task PutAuthChallengeAsync(AuthChallenge c, CancellationToken ct = default)
     {
         var item = new Dictionary<string, AttributeValue>

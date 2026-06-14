@@ -24,7 +24,19 @@ public interface IAppRepository
 
     Task PutMessageAsync(ChatMessage message, CancellationToken ct = default);
     Task<IReadOnlyList<ChatMessage>> ListMessagesAsync(string waId, CancellationToken ct = default);
-    Task<bool> PatchMessageStatusByWaMessageIdAsync(string waMessageId, string status, CancellationToken ct = default);
+    Task<IReadOnlyList<ChatMessage>> ListMessagesAfterAsync(string waId, string afterCreatedAt, CancellationToken ct = default);
+
+    /// <summary>
+    /// Patch an outbound message's status, located by the opaque id we sent as
+    /// <c>biz_opaque_callback_data</c>; records the Meta wamid when provided. Returns false if no match.
+    /// </summary>
+    Task<bool> PatchMessageStatusByRefAsync(string opaqueId, string status, string? metaMessageId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns true if a login code may be sent to <paramref name="username"/> now, atomically
+    /// recording a cooldown so concurrent/rapid requests can't spam codes. False = still cooling down.
+    /// </summary>
+    Task<bool> TryStartLoginAsync(string username, int cooldownSeconds, CancellationToken ct = default);
 
     Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default);
     Task<AuthChallenge?> GetAuthChallengeAsync(string challengeId, CancellationToken ct = default);

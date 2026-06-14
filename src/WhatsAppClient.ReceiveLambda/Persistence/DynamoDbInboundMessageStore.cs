@@ -67,10 +67,13 @@ public sealed class DynamoDbInboundMessageStore : IInboundMessageStore
         CancellationToken cancellationToken = default)
     {
         var timestamp = status.Timestamp ?? string.Empty;
+        // Some statuses (e.g. read-receipt acks) arrive with no id; add a unique suffix so distinct
+        // events can't collide on the same SK and silently overwrite each other.
+        var idPart = string.IsNullOrEmpty(status.Id) ? Guid.NewGuid().ToString("N")[..8] : status.Id;
         var item = new Dictionary<string, AttributeValue>
         {
             ["PK"] = S($"WA#{status.RecipientId}"),
-            ["SK"] = S($"STATUS#{timestamp}#{status.Id}#{status.Status}"),
+            ["SK"] = S($"STATUS#{timestamp}#{idPart}#{status.Status}"),
             ["Direction"] = S("status"),
         };
 

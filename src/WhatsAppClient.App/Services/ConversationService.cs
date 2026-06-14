@@ -36,6 +36,11 @@ public sealed class ConversationService
         return (messagesTask.Result, conversation);
     }
 
+    /// <summary>Only messages newer than <paramref name="afterCreatedAt"/> — for cheap incremental polling.</summary>
+    public Task<IReadOnlyList<ChatMessage>> GetNewMessagesAsync(
+        string waId, string afterCreatedAt, CancellationToken ct = default) =>
+        _repo.ListMessagesAfterAsync(waId, afterCreatedAt, ct);
+
     /// <summary>Free-form reply; only allowed while the 24h window is open.</summary>
     public async Task<ChatMessage> ReplyAsync(string waId, string text, string sentBy, CancellationToken ct = default)
     {
@@ -43,8 +48,16 @@ public sealed class ConversationService
         var conversation = await _repo.GetConversationAsync(waId, ct);
         if (!WindowOpen(conversation)) throw new WindowClosedException();
 
-        var waMessageId = (await _whatsapp.SendTextMessageAsync(contact.PhoneE164, text, cancellationToken: ct)).MessageId;
-        return await PersistOutboundAsync(waId, "text", text, waMessageId, sentBy, templateName: null, ct);
+        var id = Guid.NewGuid().ToString();
+        // Stamp our id as biz_opaque_callback_data so status webhooks can be correlated back to it.
+        var message = new WhatsAppTextMessage
+        {
+            To = contact.PhoneE164,
+            Text = new WhatsAppTextBody { Body = text },
+            BizOpaqueCallbackData = id,
+        };
+        var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
+        return await PersistOutboundAsync(id, waId, "text", text, awsId, sentBy, templateName: null, ct);
     }
 
     /// <summary>Template send; works outside the 24h window (agent-initiated utility exchange).</summary>
@@ -65,9 +78,20 @@ public sealed class ConversationService
             }
             : null;
 
-        var waMessageId = (await _whatsapp.SendTemplateMessageAsync(
-            contact.PhoneE164, templateName, languageCode, components, ct)).MessageId;
-        return await PersistOutboundAsync(waId, "template", $"[template: {templateName}]", waMessageId, sentBy, templateName, ct);
+        var id = Guid.NewGuid().ToString();
+        var message = new WhatsAppTemplateMessage
+        {
+            To = contact.PhoneE164,
+            Template = new WhatsAppTemplate
+            {
+                Name = templateName,
+                Language = new WhatsAppTemplateLanguage { Code = languageCode },
+                Components = components,
+            },
+            BizOpaqueCallbackData = id,
+        };
+        var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
+        return await PersistOutboundAsync(id, waId, "template", $"[template: {templateName}]", awsId, sentBy, templateName, ct);
     }
 
     private static bool WindowOpen(Conversation? conv) =>
@@ -75,18 +99,18 @@ public sealed class ConversationService
         DateTimeOffset.TryParse(exp, out var when) && when > DateTimeOffset.UtcNow;
 
     private async Task<ChatMessage> PersistOutboundAsync(
-        string waId, string type, string text, string? waMessageId, string sentBy, string? templateName, CancellationToken ct)
+        string id, string waId, string type, string text, string? awsId, string sentBy, string? templateName, CancellationToken ct)
     {
         var now = DateTime.UtcNow.ToString("o");
         var msg = new ChatMessage
         {
             WaId = waId,
-            Id = Guid.NewGuid().ToString(),
+            Id = id,
             Direction = "out",
             Type = type,
             Text = text,
             Status = "sent",
-            WaMessageId = waMessageId,
+            WaMessageId = awsId,
             SentBy = sentBy,
             TemplateName = templateName,
             CreatedAt = now,

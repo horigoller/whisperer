@@ -23,4 +23,13 @@ public abstract class WhatsAppMessage
 
     [JsonPropertyName("type")]
     public abstract string Type { get; }
+
+    /// <summary>
+    /// Optional opaque correlation string (max 512 chars) echoed back verbatim in the message's
+    /// status webhooks (<c>statuses[].biz_opaque_callback_data</c>). Use it to match a delivery
+    /// status to the outbound record you stored, since the send API's returned id differs from
+    /// the Meta <c>wamid</c> carried by status updates.
+    /// </summary>
+    [JsonPropertyName("biz_opaque_callback_data")]
+    public string? BizOpaqueCallbackData { get; init; }
 }

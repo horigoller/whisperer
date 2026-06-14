@@ -8,6 +8,7 @@ public static class LoginCodes
 {
     public const int TtlSeconds = 300; // 5 minutes
     public const int MaxAttempts = 5;
+    public const int CooldownSeconds = 45; // min interval between login codes per user
 
     /// <summary>A 6-digit numeric code.</summary>
     public static string Generate() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");

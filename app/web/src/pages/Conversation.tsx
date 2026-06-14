@@ -11,18 +11,37 @@ export function Conversation() {
   const [error, setError] = useState<string | null>(null);
   const [showTemplate, setShowTemplate] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const lastTsRef = useRef("");
 
+  useEffect(() => { lastTsRef.current = messages.length ? messages[messages.length - 1].createdAt : ""; }, [messages]);
+
+  // Full reload (initial open, after sending, switching contact): also resets unread.
   const load = useCallback(async () => {
     const r = await api.thread(waId);
     setMessages(r.messages);
     setConv(r.conversation);
   }, [waId]);
 
+  // Incremental poll: only fetch messages newer than the last one we have, then append (dedup).
+  const poll = useCallback(async () => {
+    const after = lastTsRef.current;
+    if (!after) { await load(); return; }
+    const r = await api.threadSince(waId, after);
+    if (r.messages.length === 0) return;
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id));
+      const merged = prev.concat(r.messages.filter((m) => !seen.has(m.id)));
+      merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return merged;
+    });
+  }, [waId, load]);
+
   useEffect(() => {
+    setMessages([]);
     load().catch(() => {});
-    const t = setInterval(() => load().catch(() => {}), 6000);
+    const t = setInterval(() => poll().catch(() => {}), 6000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [waId, load, poll]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 

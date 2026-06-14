@@ -64,6 +64,19 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_SecondCallWithinCooldown_SendsNoSecondCode()
+    {
+        var svc = CreateService();
+
+        await svc.StartAsync("admin");
+        _sentBody = null; // reset capture
+        await svc.StartAsync("admin"); // immediate retry → should be rate-limited
+
+        Assert.Null(_sentBody);
+        _whatsapp.Verify(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task VerifyAsync_CorrectCode_ReturnsUser_AndConsumesChallenge()
     {
         var svc = CreateService();

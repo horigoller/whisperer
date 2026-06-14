@@ -24,6 +24,10 @@ public sealed class WhatsAppStatus
     [JsonPropertyName("recipient_id")]
     public string? RecipientId { get; init; }
 
+    /// <summary>The opaque correlation string set on the outbound message, echoed back here.</summary>
+    [JsonPropertyName("biz_opaque_callback_data")]
+    public string? BizOpaqueCallbackData { get; init; }
+
     [JsonPropertyName("conversation")]
     public WhatsAppStatusConversation? Conversation { get; init; }
 

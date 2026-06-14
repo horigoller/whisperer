@@ -48,14 +48,34 @@ public sealed class InMemoryAppRepository : IAppRepository
         Task.FromResult<IReadOnlyList<ChatMessage>>(
             (Messages.GetValueOrDefault(waId) ?? []).OrderBy(m => m.CreatedAt, StringComparer.Ordinal).ToList());
 
-    public Task<bool> PatchMessageStatusByWaMessageIdAsync(string waMessageId, string status, CancellationToken ct = default)
+    public Task<IReadOnlyList<ChatMessage>> ListMessagesAfterAsync(string waId, string afterCreatedAt, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<ChatMessage>>(
+            (Messages.GetValueOrDefault(waId) ?? [])
+                .Where(m => string.CompareOrdinal(m.CreatedAt, afterCreatedAt) > 0)
+                .OrderBy(m => m.CreatedAt, StringComparer.Ordinal).ToList());
+
+    public Task<bool> PatchMessageStatusByRefAsync(string opaqueId, string status, string? metaMessageId, CancellationToken ct = default)
     {
         foreach (var list in Messages.Values)
         {
-            var m = list.FirstOrDefault(x => x.WaMessageId == waMessageId);
-            if (m is not null) { m.Status = status; return Task.FromResult(true); }
+            var m = list.FirstOrDefault(x => x.Id == opaqueId);
+            if (m is not null)
+            {
+                m.Status = status;
+                if (!string.IsNullOrEmpty(metaMessageId)) m.WaMessageId = metaMessageId;
+                return Task.FromResult(true);
+            }
         }
         return Task.FromResult(false);
+    }
+
+    public Dictionary<string, long> LoginCooldownUntil { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Task<bool> TryStartLoginAsync(string username, int cooldownSeconds, CancellationToken ct = default)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (LoginCooldownUntil.TryGetValue(username, out var until) && until > now) return Task.FromResult(false);
+        LoginCooldownUntil[username] = now + cooldownSeconds;
+        return Task.FromResult(true);
     }
 
     public Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default) { Challenges[challenge.ChallengeId] = challenge; return Task.CompletedTask; }

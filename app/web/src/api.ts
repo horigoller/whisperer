@@ -50,6 +50,8 @@ export const api = {
   // conversations
   conversations: () => req<{ conversations: Conversation[] }>("/conversations"),
   thread: (waId: string) => req<{ messages: ChatMessage[]; conversation: Conversation | null }>(`/conversations/${waId}/messages`),
+  threadSince: (waId: string, after: string) =>
+    req<{ messages: ChatMessage[] }>(`/conversations/${waId}/messages?after=${encodeURIComponent(after)}`),
   reply: (waId: string, text: string) => req<{ message: ChatMessage }>(`/conversations/${waId}/reply`, { method: "POST", body: JSON.stringify({ text }) }),
   sendTemplate: (waId: string, templateName: string, languageCode: string, params: string[]) =>
     req<{ message: ChatMessage }>(`/conversations/${waId}/template`, { method: "POST", body: JSON.stringify({ templateName, languageCode, params }) }),
