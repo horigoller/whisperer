@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, type ChatMessage, type Conversation as Conv, type ApprovedTemplate } from "../api";
 import { clockTime, windowOpen } from "../format";
 import { useAuth } from "../auth";
@@ -8,6 +8,10 @@ import { connectRealtime } from "../realtime";
 export function Conversation() {
   const { waId = "" } = useParams();
   const { wsUrl } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Go back to the list we came from (inbox/contacts); fall back to the inbox on a deep link/refresh.
+  const goBack = () => (location.key === "default" ? navigate("/") : navigate(-1));
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conv, setConv] = useState<Conv | null>(null);
   const [text, setText] = useState("");
@@ -83,7 +87,12 @@ export function Conversation() {
   return (
     <div className="thread">
       <header className="thread-head">
-        <div>{conv?.name ?? `+${waId}`}</div>
+        <div className="thread-title">
+          <button className="icon-btn" onClick={goBack} aria-label="Back to list" title="Back">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+          </button>
+          <span>{conv?.name ?? `+${waId}`}</span>
+        </div>
         <span className={open ? "pill open" : "pill closed"}>{open ? "window open" : "window closed"}</span>
       </header>
 

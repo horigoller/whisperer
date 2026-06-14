@@ -11,7 +11,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--text); background: var(--bg); }
+html, body, #root { height: 100%; }
+body { margin: 0; overflow: hidden; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: var(--text); background: var(--bg); }
 button { font: inherit; cursor: pointer; }
 input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
 
@@ -23,8 +24,11 @@ input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border
 .login button { background: var(--accent-dark); color: #fff; border: none; border-radius: 8px; padding: 10px; }
 .login button:disabled { opacity: .5; }
 
-.layout { display: grid; grid-template-columns: 240px 1fr; height: 100vh; transition: grid-template-columns .18s ease; }
-.layout.collapsed { grid-template-columns: 64px 1fr; } /* slim icon rail */
+/* minmax(0, 1fr) on the column lets the content track shrink below its min-content so the
+   panel tracks the frame width; the single minmax(0, 1fr) row pins it to the frame height
+   (an implicit `auto` row would grow with a long list and scroll the whole page instead). */
+.layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; overflow: hidden; transition: grid-template-columns .18s ease; }
+.layout.collapsed { grid-template-columns: 64px minmax(0, 1fr); } /* slim icon rail */
 .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; z-index: 50; }
 
 .rail-toggle { align-self: flex-end; width: 32px; height: 32px; display: grid; place-items: center; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
@@ -41,7 +45,7 @@ input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border
 .sidebar .spacer { flex: 1; }
 .sidebar .me { font-size: 13px; color: var(--muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; }
 .sidebar .logout { display: flex; align-items: center; gap: 12px; padding: 9px 10px; }
-.content { overflow-y: auto; min-width: 0; }
+.content { overflow-y: auto; min-width: 0; min-height: 0; }
 
 /* Collapsed = icon-only rail: hide text labels, center the icons. */
 .layout.collapsed .sidebar .label { display: none; }
@@ -52,12 +56,15 @@ input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border
 
 .sidebar-backdrop { display: none; }
 
-/* Mobile: keep the rail reserved; expanding overlays a full drawer over the content. */
+/* Mobile: the rail is a fixed overlay (not a grid track), so content fills the rest
+   via a left margin. Expanding widens it into a drawer over the content with a backdrop. */
 @media (max-width: 760px) {
-  .layout, .layout.collapsed { grid-template-columns: 64px 1fr; }
-  .sidebar { position: fixed; top: 0; left: 0; height: 100vh; width: 64px; }
+  .layout, .layout.collapsed { display: block; height: 100dvh; }
+  .sidebar { position: fixed; top: 0; left: 0; height: 100dvh; width: 64px; }
+  .content { margin-left: 64px; height: 100dvh; }
   .layout:not(.collapsed) .sidebar { width: 240px; box-shadow: 2px 0 14px rgba(0,0,0,.18); }
   .layout:not(.collapsed) .sidebar-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 40; }
+  .thread { height: 100dvh; }
 }
 
 .pad { padding: 12px 16px; }
@@ -70,9 +77,12 @@ input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border
 .list { display: flex; flex-direction: column; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); }
 .row:hover { background: var(--panel); }
-.row-title { font-weight: 600; }
-.row-sub { color: var(--muted); font-size: 13px; max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 12px; }
+.row-main { min-width: 0; flex: 1; }
+/* List rows fit the panel width with no horizontal scroll: the title is one line, the preview
+   clamps to two lines, both ellipsized; overflow-wrap breaks long unbroken strings. */
+.row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 12px; flex: none; }
 .badge { background: var(--accent); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; margin-left: 8px; }
 .pill { font-size: 11px; border-radius: 10px; padding: 1px 8px; }
 .pill.open { background: #e7f8ec; color: var(--accent-dark); }
@@ -88,8 +98,12 @@ button.primary { background: var(--accent-dark); color: #fff; border: none; bord
 .role.you { background: var(--bg); }
 .link:disabled { color: var(--muted); cursor: not-allowed; }
 
-.thread { display: flex; flex-direction: column; height: 100vh; }
-.thread-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--panel); font-weight: 600; }
+.thread { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.thread-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--panel); font-weight: 600; }
+.thread-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.thread-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border: none; background: none; color: var(--text); border-radius: 8px; margin-left: -6px; }
+.icon-btn:hover { background: var(--bg); }
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #efeae2; }
 .bubble { max-width: 70%; padding: 7px 10px; border-radius: 8px; box-shadow: 0 1px 1px rgba(0,0,0,.06); }
 .bubble.in { align-self: flex-start; background: var(--in); }
