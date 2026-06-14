@@ -28,5 +28,19 @@ public sealed class UserService
         return user;
     }
 
+    /// <summary>Update an existing user's profile. Username is the identity and stays fixed; returns null if unknown.</summary>
+    public async Task<SystemUser?> UpdateAsync(
+        string username, string? displayName, string? phoneInput, UserRole role, CancellationToken ct = default)
+    {
+        var user = await _repo.GetUserAsync(username, ct);
+        if (user is null) return null;
+
+        if (!string.IsNullOrWhiteSpace(displayName)) user.DisplayName = displayName!;
+        if (!string.IsNullOrWhiteSpace(phoneInput)) user.PhoneE164 = PhoneNumbers.ToE164(phoneInput);
+        user.Role = role;
+        await _repo.PutUserAsync(user, ct);
+        return user;
+    }
+
     public Task DeleteAsync(string username, CancellationToken ct = default) => _repo.DeleteUserAsync(username, ct);
 }

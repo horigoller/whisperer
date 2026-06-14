@@ -12,6 +12,7 @@ export interface ChatMessage {
   errorCode: number | null; errorDetail: string | null; createdAt: string;
 }
 export interface Contact { waId: string; phoneE164: string; name: string | null; source: string; }
+export interface SystemUserRow { username: string; displayName: string; phoneE164: string; role: string; status?: string; }
 export interface ApprovedTemplate { name: string; language: string | null; category: string | null; }
 
 const TOKEN_KEY = "ww.session";
@@ -65,10 +66,12 @@ export const api = {
   addContact: (name: string, phoneE164: string) => req<{ contact: Contact }>("/contacts", { method: "POST", body: JSON.stringify({ name, phoneE164 }) }),
 
   // users
-  users: () => req<{ users: SessionUser[] & { phoneE164?: string }[] }>("/users"),
+  users: () => req<{ users: SystemUserRow[] }>("/users"),
   addUser: (u: { username: string; displayName: string; phoneE164: string; role: string }) =>
-    req<{ user: unknown }>("/users", { method: "POST", body: JSON.stringify(u) }),
-  deleteUser: (username: string) => req<{ ok: boolean }>(`/users/${username}`, { method: "DELETE" }),
+    req<{ user: SystemUserRow }>("/users", { method: "POST", body: JSON.stringify(u) }),
+  updateUser: (username: string, u: { displayName: string; phoneE164: string; role: string }) =>
+    req<{ user: SystemUserRow }>(`/users/${encodeURIComponent(username)}`, { method: "PUT", body: JSON.stringify(u) }),
+  deleteUser: (username: string) => req<{ ok: boolean }>(`/users/${encodeURIComponent(username)}`, { method: "DELETE" }),
 
   // templates
   templates: () => req<{ templates: ApprovedTemplate[] }>("/templates"),

@@ -61,7 +61,10 @@ export function Login() {
   return (
     <div className="centered">
       <form className="card login" onSubmit={step === "username" ? start : verify}>
-        <h1>Whisperer</h1>
+        <div className="login-brand">
+          <img src="/icon.svg" alt="" width={56} height={56} />
+          <h1>Whisperer</h1>
+        </div>
         {step === "username" ? (
           <>
             <p>Enter your username. We'll send a one-time code to your WhatsApp.</p>

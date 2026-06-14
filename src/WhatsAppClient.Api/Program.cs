@@ -152,7 +152,19 @@ contacts.MapPost("/", async (AddContactRequest req, ContactService svc) =>
 // ---- System users ----------------------------------------------------------
 var users = api.MapGroup("/users").AddEndpointFilter(Security.AuthFilter);
 
-users.MapGet("/", async (UserService svc) => Results.Ok(new { users = await svc.ListAsync() }));
+// Project to a stable shape: role as a lowercase string ("agent"/"admin") the UI can display and preselect.
+static object UserDto(SystemUser u) => new
+{
+    username = u.Username,
+    displayName = u.DisplayName,
+    phoneE164 = u.PhoneE164,
+    role = u.Role.ToString().ToLowerInvariant(),
+    status = u.Status,
+};
+static UserRole ParseRole(string? role) =>
+    string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase) ? UserRole.Admin : UserRole.Agent;
+
+users.MapGet("/", async (UserService svc) => Results.Ok(new { users = (await svc.ListAsync()).Select(UserDto) }));
 
 users.MapPost("/", async (AddUserRequest req, UserService svc) =>
 {
@@ -160,9 +172,21 @@ users.MapPost("/", async (AddUserRequest req, UserService svc) =>
         return Results.BadRequest(new { error = "username and phoneE164 required" });
     try
     {
-        var role = string.Equals(req.Role, "admin", StringComparison.OrdinalIgnoreCase) ? UserRole.Admin : UserRole.Agent;
-        var user = await svc.AddAsync(req.Username, req.DisplayName, req.PhoneE164, role);
-        return Results.Ok(new { user });
+        var user = await svc.AddAsync(req.Username, req.DisplayName, req.PhoneE164, ParseRole(req.Role));
+        return Results.Ok(new { user = UserDto(user) });
+    }
+    catch (ArgumentException)
+    {
+        return Results.BadRequest(new { error = "invalid phone number" });
+    }
+}).AddEndpointFilter(Security.AdminFilter);
+
+users.MapPut("/{username}", async (string username, UpdateUserRequest req, UserService svc) =>
+{
+    try
+    {
+        var user = await svc.UpdateAsync(username, req.DisplayName, req.PhoneE164, ParseRole(req.Role));
+        return user is null ? Results.NotFound(new { error = "user not found" }) : Results.Ok(new { user = UserDto(user) });
     }
     catch (ArgumentException)
     {
