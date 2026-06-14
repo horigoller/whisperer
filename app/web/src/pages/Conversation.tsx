@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError, type ChatMessage, type Conversation as Conv, type ApprovedTemplate } from "../api";
 import { clockTime, windowOpen } from "../format";
+import { useAuth } from "../auth";
+import { connectRealtime } from "../realtime";
 
 export function Conversation() {
   const { waId = "" } = useParams();
+  const { wsUrl } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conv, setConv] = useState<Conv | null>(null);
   const [text, setText] = useState("");
@@ -39,9 +42,25 @@ export function Conversation() {
   useEffect(() => {
     setMessages([]);
     load().catch(() => {});
-    const t = setInterval(() => poll().catch(() => {}), 6000);
-    return () => clearInterval(t);
-  }, [waId, load, poll]);
+
+    // Real-time: append inbound/outbound messages and patch statuses for this contact instantly.
+    const stop = wsUrl ? connectRealtime(wsUrl, (e) => {
+      if (e.waId !== waId) return;
+      if (e.type === "message" && e.message) {
+        setMessages((prev) => prev.some((m) => m.id === e.message!.id)
+          ? prev
+          : prev.concat(e.message!).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+      } else if (e.type === "status" && e.messageId) {
+        setMessages((prev) => prev.map((m) => m.id === e.messageId
+          ? { ...m, status: e.status ?? m.status, errorCode: e.errorCode ?? m.errorCode, errorDetail: e.errorDetail ?? m.errorDetail }
+          : m));
+      }
+    }) : undefined;
+
+    // Safety net in case a push is missed.
+    const t = setInterval(() => poll().catch(() => {}), 30000);
+    return () => { clearInterval(t); stop?.(); };
+  }, [waId, load, poll, wsUrl]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 

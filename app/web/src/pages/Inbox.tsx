@@ -2,17 +2,24 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Conversation } from "../api";
 import { windowOpen, since } from "../format";
+import { useAuth } from "../auth";
+import { connectRealtime } from "../realtime";
 
 export function Inbox() {
   const [items, setItems] = useState<Conversation[] | null>(null);
+  const { wsUrl } = useAuth();
 
   useEffect(() => {
     let active = true;
     const load = () => api.conversations().then((r) => active && setItems(r.conversations)).catch(() => {});
     load();
-    const t = setInterval(load, 8000); // light polling for new messages
-    return () => { active = false; clearInterval(t); };
-  }, []);
+
+    // Real-time: any message/status event refreshes the (cheap) inbox list.
+    const stop = wsUrl ? connectRealtime(wsUrl, () => load()) : undefined;
+    // Safety net in case a push is missed.
+    const t = setInterval(load, 30000);
+    return () => { active = false; clearInterval(t); stop?.(); };
+  }, [wsUrl]);
 
   if (!items) return <div className="muted pad">Loading conversations…</div>;
   if (items.length === 0) return <div className="muted pad">No conversations yet. A customer messaging your number will appear here.</div>;

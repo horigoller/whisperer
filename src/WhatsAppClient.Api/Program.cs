@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Amazon.Lambda.AspNetCoreServer.Hosting;
 using Amazon.S3;
 using WhatsAppClient.Api;
 using WhatsAppClient.App;
 using WhatsAppClient.App.Auth;
+using WhatsAppClient.App.Configuration;
 using WhatsAppClient.App.Models;
 using WhatsAppClient.App.Services;
 
@@ -30,7 +32,7 @@ auth.MapPost("/start", async (StartLoginRequest req, AuthService svc) =>
     return Results.Ok(new { challengeId });
 });
 
-auth.MapPost("/verify", async (VerifyRequest req, AuthService svc, ISessionTokenService tokens, HttpContext http) =>
+auth.MapPost("/verify", async (VerifyRequest req, AuthService svc, ISessionTokenService tokens, IOptions<AppOptions> appOptions, HttpContext http) =>
 {
     if (string.IsNullOrWhiteSpace(req.ChallengeId) || string.IsNullOrWhiteSpace(req.Code))
         return Results.BadRequest(new { error = "challengeId and code required" });
@@ -47,7 +49,12 @@ auth.MapPost("/verify", async (VerifyRequest req, AuthService svc, ISessionToken
         Path = "/",
         MaxAge = TimeSpan.FromHours(12),
     });
-    return Results.Ok(new { token, user = new { username = user.Username, displayName = user.DisplayName, role = user.Role.ToString() } });
+    return Results.Ok(new
+    {
+        token,
+        wsUrl = appOptions.Value.RealtimeWsUrl,
+        user = new { username = user.Username, displayName = user.DisplayName, role = user.Role.ToString() },
+    });
 });
 
 // Lets the login page show why a code didn't arrive (async delivery failures like 131037).
@@ -63,10 +70,14 @@ auth.MapPost("/logout", (HttpContext http) =>
     return Results.Ok(new { ok = true });
 });
 
-auth.MapGet("/me", (HttpContext http) =>
+auth.MapGet("/me", (HttpContext http, IOptions<AppOptions> appOptions) =>
 {
     var u = http.CurrentUser();
-    return Results.Ok(new { user = new { username = u.Username, displayName = u.DisplayName, role = u.Role.ToString() } });
+    return Results.Ok(new
+    {
+        wsUrl = appOptions.Value.RealtimeWsUrl,
+        user = new { username = u.Username, displayName = u.DisplayName, role = u.Role.ToString() },
+    });
 }).AddEndpointFilter(Security.AuthFilter);
 
 // ---- Conversations ---------------------------------------------------------

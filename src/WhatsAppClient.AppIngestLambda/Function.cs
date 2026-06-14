@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using WhatsAppClient.App.Configuration;
 using WhatsAppClient.App.Ingest;
 using WhatsAppClient.App.Persistence;
+using WhatsAppClient.App.Realtime;
 
 namespace WhatsAppClient.AppIngestLambda;
 
@@ -38,6 +39,7 @@ public sealed class Function
         services.AddOptions<AppOptions>().Bind(configuration.GetSection(AppOptions.SectionName));
         services.TryAddAWSService<IAmazonDynamoDB>();
         services.AddSingleton<IAppRepository, DynamoAppRepository>();
+        services.AddSingleton<IRealtimePublisher, RealtimePublisher>();
         services.AddSingleton<AppIngestProcessor>();
 
         return services.BuildServiceProvider().GetRequiredService<AppIngestProcessor>();

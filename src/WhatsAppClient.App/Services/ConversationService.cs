@@ -1,5 +1,6 @@
 using WhatsAppClient.App.Models;
 using WhatsAppClient.App.Persistence;
+using WhatsAppClient.App.Realtime;
 using WhatsAppClient.Core.Models;
 using WhatsAppClient.Core.Services;
 
@@ -9,11 +10,13 @@ public sealed class ConversationService
 {
     private readonly IAppRepository _repo;
     private readonly IWhatsAppMessageService _whatsapp;
+    private readonly IRealtimePublisher _realtime;
 
-    public ConversationService(IAppRepository repo, IWhatsAppMessageService whatsapp)
+    public ConversationService(IAppRepository repo, IWhatsAppMessageService whatsapp, IRealtimePublisher realtime)
     {
         _repo = repo;
         _whatsapp = whatsapp;
+        _realtime = realtime;
     }
 
     public Task<IReadOnlyList<Conversation>> ListAsync(CancellationToken ct = default) =>
@@ -131,6 +134,9 @@ public sealed class ConversationService
             WindowExpiresAt = existing?.WindowExpiresAt,
             Unread = existing?.Unread ?? 0,
         }, ct);
+
+        // Push so other agents' inboxes/threads update without polling.
+        await _realtime.PublishAsync(new RealtimeEvent("message", waId, Message: msg), ct);
         return msg;
     }
 }

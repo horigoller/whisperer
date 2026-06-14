@@ -45,6 +45,11 @@ public interface IAppRepository
 
     /// <summary>Record a login-code delivery failure on the challenge, if it still exists (no-op otherwise).</summary>
     Task PatchAuthDeliveryErrorAsync(string challengeId, int? errorCode, string? errorDetail, CancellationToken ct = default);
+
+    // ---- WebSocket connections ---------------------------------------------
+    Task PutConnectionAsync(string connectionId, string username, CancellationToken ct = default);
+    Task DeleteConnectionAsync(string connectionId, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> ListConnectionIdsAsync(CancellationToken ct = default);
     Task IncrementAuthAttemptsAsync(string challengeId, CancellationToken ct = default);
     Task DeleteAuthChallengeAsync(string challengeId, CancellationToken ct = default);
 }

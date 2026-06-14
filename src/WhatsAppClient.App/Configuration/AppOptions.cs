@@ -36,4 +36,13 @@ public sealed class AppOptions
 
     /// <summary>AUTHENTICATION template used to deliver login codes outside the 24h window.</summary>
     public string LoginTemplateName { get; set; } = "login_code";
+
+    /// <summary>
+    /// HTTPS management endpoint of the WebSocket API (https://{id}.execute-api.{region}.amazonaws.com/{stage})
+    /// used to push events to connected clients. Empty disables real-time push (no-op).
+    /// </summary>
+    public string RealtimeEndpoint { get; set; } = string.Empty;
+
+    /// <summary>The wss:// URL the browser connects to, handed to the client after login.</summary>
+    public string RealtimeWsUrl { get; set; } = string.Empty;
 }

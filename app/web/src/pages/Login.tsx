@@ -49,8 +49,8 @@ export function Login() {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const { token, user } = await api.verify(challengeId, code.trim());
-      login(token, user);
+      const { token, user, wsUrl } = await api.verify(challengeId, code.trim());
+      login(token, user, wsUrl);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Verification failed.");
     } finally {

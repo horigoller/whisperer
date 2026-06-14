@@ -1,5 +1,6 @@
 using Moq;
 using WhatsAppClient.App.Models;
+using WhatsAppClient.App.Realtime;
 using WhatsAppClient.App.Services;
 using WhatsAppClient.Core.Models;
 using WhatsAppClient.Core.Services;
@@ -22,7 +23,8 @@ public class ConversationServiceTests
             .ReturnsAsync(new SendWhatsAppMessageResult("aws-send-id"));
     }
 
-    private ConversationService Svc() => new(_repo, _whatsapp.Object);
+    private readonly Mock<IRealtimePublisher> _realtime = new();
+    private ConversationService Svc() => new(_repo, _whatsapp.Object, _realtime.Object);
 
     [Fact]
     public async Task ReplyAsync_WindowClosed_Throws()

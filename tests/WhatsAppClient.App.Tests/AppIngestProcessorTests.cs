@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using WhatsAppClient.App.Ingest;
 using WhatsAppClient.App.Models;
+using WhatsAppClient.App.Realtime;
 using WhatsAppClient.Core.Models.Inbound;
 using Xunit;
 
@@ -9,7 +11,8 @@ namespace WhatsAppClient.App.Tests;
 public class AppIngestProcessorTests
 {
     private readonly InMemoryAppRepository _repo = new();
-    private AppIngestProcessor Processor() => new(_repo, NullLogger<AppIngestProcessor>.Instance);
+    private readonly Mock<IRealtimePublisher> _realtime = new();
+    private AppIngestProcessor Processor() => new(_repo, _realtime.Object, NullLogger<AppIngestProcessor>.Instance);
 
     [Fact]
     public async Task MessageReceived_SelfRegistersContact_StoresMessage_OpensWindowFromMessageTime()

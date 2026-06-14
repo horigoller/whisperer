@@ -11,6 +11,7 @@ public sealed class InMemoryAppRepository : IAppRepository
     public Dictionary<string, Conversation> Conversations { get; } = new();
     public Dictionary<string, List<ChatMessage>> Messages { get; } = new();
     public Dictionary<string, AuthChallenge> Challenges { get; } = new();
+    public Dictionary<string, string> Connections { get; } = new();
 
     public Task<SystemUser?> GetUserAsync(string username, CancellationToken ct = default) =>
         Task.FromResult(Users.GetValueOrDefault(username));
@@ -90,6 +91,13 @@ public sealed class InMemoryAppRepository : IAppRepository
         if (Challenges.TryGetValue(challengeId, out var c)) { c.DeliveryErrorCode = errorCode; c.DeliveryError = errorDetail ?? "delivery failed"; }
         return Task.CompletedTask;
     }
+
+    public Task PutConnectionAsync(string connectionId, string username, CancellationToken ct = default)
+    { Connections[connectionId] = username; return Task.CompletedTask; }
+    public Task DeleteConnectionAsync(string connectionId, CancellationToken ct = default)
+    { Connections.Remove(connectionId); return Task.CompletedTask; }
+    public Task<IReadOnlyList<string>> ListConnectionIdsAsync(CancellationToken ct = default)
+    => Task.FromResult<IReadOnlyList<string>>(Connections.Keys.ToList());
     public Task IncrementAuthAttemptsAsync(string challengeId, CancellationToken ct = default)
     {
         if (Challenges.TryGetValue(challengeId, out var c)) c.Attempts++;

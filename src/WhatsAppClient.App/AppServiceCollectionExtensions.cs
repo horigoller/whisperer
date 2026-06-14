@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using WhatsAppClient.App.Auth;
 using WhatsAppClient.App.Configuration;
 using WhatsAppClient.App.Persistence;
+using WhatsAppClient.App.Realtime;
 using WhatsAppClient.App.Services;
 using WhatsAppClient.Core;
 
@@ -32,6 +33,7 @@ public static class AppServiceCollectionExtensions
         services.AddSingleton<IAppRepository, DynamoAppRepository>();
         services.AddSingleton<ISessionSecretProvider, SessionSecretProvider>();
         services.AddSingleton<ISessionTokenService, SessionTokenService>();
+        services.AddSingleton<IRealtimePublisher, RealtimePublisher>();
 
         services.AddScoped<AuthService>();
         services.AddScoped<ConversationService>();

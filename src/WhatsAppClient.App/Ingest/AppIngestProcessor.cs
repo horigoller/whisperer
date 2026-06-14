@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using WhatsAppClient.App.Models;
 using WhatsAppClient.App.Persistence;
+using WhatsAppClient.App.Realtime;
 using WhatsAppClient.App.Util;
 using WhatsAppClient.Core.Models.Inbound;
 
@@ -15,11 +16,13 @@ public sealed class AppIngestProcessor
 {
     private static readonly TimeSpan Window = TimeSpan.FromHours(24);
     private readonly IAppRepository _repo;
+    private readonly IRealtimePublisher _realtime;
     private readonly ILogger<AppIngestProcessor> _logger;
 
-    public AppIngestProcessor(IAppRepository repo, ILogger<AppIngestProcessor> logger)
+    public AppIngestProcessor(IAppRepository repo, IRealtimePublisher realtime, ILogger<AppIngestProcessor> logger)
     {
         _repo = repo;
+        _realtime = realtime;
         _logger = logger;
     }
 
@@ -42,12 +45,22 @@ public sealed class AppIngestProcessor
                 var errorDetail = error?.ErrorData?.Details ?? error?.Message ?? error?.Title;
                 var matched = await _repo.PatchMessageStatusByRefAsync(
                     s.BizOpaqueCallbackData, status, s.Id, error?.Code, errorDetail, ct);
-                if (!matched && status == "failed")
+                if (matched)
+                {
+                    var waId = PhoneNumbers.ToWaId(s.RecipientId ?? string.Empty);
+                    if (waId.Length > 0)
+                    {
+                        await _realtime.PublishAsync(new RealtimeEvent(
+                            "status", waId, MessageId: s.BizOpaqueCallbackData, Status: status,
+                            ErrorCode: error?.Code, ErrorDetail: errorDetail), ct);
+                    }
+                }
+                else if (status == "failed")
                 {
                     // Not a stored conversation message — may be a login code (opaque == challengeId).
                     await _repo.PatchAuthDeliveryErrorAsync(s.BizOpaqueCallbackData, error?.Code, errorDetail, ct);
                 }
-                else if (!matched)
+                else
                 {
                     _logger.LogInformation("No stored message for opaque ref {Ref}", s.BizOpaqueCallbackData);
                 }
@@ -93,7 +106,7 @@ public sealed class AppIngestProcessor
         }
 
         var text = message.Text?.Body;
-        await _repo.PutMessageAsync(new ChatMessage
+        var stored = new ChatMessage
         {
             WaId = waId,
             Id = message.Id ?? Guid.NewGuid().ToString(),
@@ -105,7 +118,8 @@ public sealed class AppIngestProcessor
             Status = "received",
             WaMessageId = message.Id,
             CreatedAt = createdAt,
-        }, ct);
+        };
+        await _repo.PutMessageAsync(stored, ct);
 
         var existingConv = await _repo.GetConversationAsync(waId, ct);
         await _repo.PutConversationAsync(new Conversation
@@ -118,5 +132,8 @@ public sealed class AppIngestProcessor
             WindowExpiresAt = messageTime.Add(Window).UtcDateTime.ToString("o"),
             Unread = (existingConv?.Unread ?? 0) + 1,
         }, ct);
+
+        // Push the inbound message so open consoles update instantly.
+        await _realtime.PublishAsync(new RealtimeEvent("message", waId, Message: stored), ct);
     }
 }

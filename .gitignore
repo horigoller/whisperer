@@ -10,6 +10,7 @@ obj/
 # Node / web build
 node_modules/
 dist/
+*.tsbuildinfo
 
 # Local Claude Code settings
 .claude/

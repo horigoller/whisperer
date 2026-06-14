@@ -18,6 +18,7 @@ public sealed class DynamoAppRepository : IAppRepository
     private const string GsiUsers = "USERS";
     private const string GsiContacts = "CONTACTS";
     private const string GsiConv = "CONV";
+    private const string GsiConnections = "CONNECTIONS";
 
     private readonly IAmazonDynamoDB _db;
     private readonly string _table;
@@ -355,6 +356,37 @@ public sealed class DynamoAppRepository : IAppRepository
             TableName = _table,
             Key = new() { ["PK"] = S(AuthPk(challengeId)), ["SK"] = S("CHALLENGE") },
         }, ct);
+
+    // ---- WebSocket connections ---------------------------------------------
+    public Task PutConnectionAsync(string connectionId, string username, CancellationToken ct = default) =>
+        _db.PutItemAsync(new PutItemRequest
+        {
+            TableName = _table,
+            Item = new()
+            {
+                ["PK"] = S($"CONN#{connectionId}"),
+                ["SK"] = S("CONN"),
+                ["entity"] = S("connection"),
+                ["GSI1PK"] = S(GsiConnections),
+                ["GSI1SK"] = S(connectionId),
+                ["ConnectionId"] = S(connectionId),
+                ["Username"] = S(username),
+                ["ttl"] = N(DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 7200), // 2h safety expiry
+            },
+        }, ct);
+
+    public Task DeleteConnectionAsync(string connectionId, CancellationToken ct = default) =>
+        _db.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _table,
+            Key = new() { ["PK"] = S($"CONN#{connectionId}"), ["SK"] = S("CONN") },
+        }, ct);
+
+    public async Task<IReadOnlyList<string>> ListConnectionIdsAsync(CancellationToken ct = default)
+    {
+        var items = await QueryGsiAsync(GsiConnections, ct: ct);
+        return items.Select(i => GetS(i, "ConnectionId")).Where(id => id.Length > 0).ToList();
+    }
 
     // ---- helpers ------------------------------------------------------------
     private static string UserPk(string u) => $"USER#{u.ToLowerInvariant()}";
