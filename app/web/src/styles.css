@@ -75,6 +75,16 @@ input, select { font: inherit; padding: 8px 10px; border: 1px solid var(--border
 .role { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
 
 .list { display: flex; flex-direction: column; }
+
+/* Inbox search + filter toolbar (sticks to the top of the scrolling panel). */
+.inbox-head { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 16px 8px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.inbox-head h2 { margin: 0; }
+.search input { width: 100%; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 16px; padding: 4px 12px; font-size: 13px; }
+.chip.on { background: var(--accent-dark); color: #fff; border-color: var(--accent-dark); }
+.chip-count { background: var(--accent); color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.chip.on .chip-count { background: rgba(255,255,255,.3); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); }
 .row:hover { background: var(--panel); }
 .row-main { min-width: 0; flex: 1; }
