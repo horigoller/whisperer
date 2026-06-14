@@ -39,7 +39,7 @@ function Sidebar() {
   const { user, logout } = useAuth();
   return (
     <nav className="sidebar">
-      <div className="brand">Goller's Whisperer</div>
+      <div className="brand">Whisperer</div>
       <NavLink to="/" end>Inbox</NavLink>
       <NavLink to="/contacts">Contacts</NavLink>
       {user?.role === "Admin" && <NavLink to="/users">System users</NavLink>}

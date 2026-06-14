@@ -87,6 +87,8 @@ public sealed class DynamoDbInboundMessageStore : IInboundMessageStore
 
         var firstError = status.Errors?.FirstOrDefault();
         Put(item, "ErrorTitle", firstError?.Title);
+        Put(item, "ErrorMessage", firstError?.Message);
+        Put(item, "ErrorDetails", firstError?.ErrorData?.Details);
         if (firstError?.Code is { } code)
         {
             item["ErrorCode"] = new AttributeValue { N = code.ToString() };

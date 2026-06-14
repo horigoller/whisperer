@@ -170,7 +170,10 @@ api.MapGet("/health", () => Results.Ok(new { ok = true }));
 api.MapFallback(() => Results.Json(new { error = "not found" }, statusCode: 404));
 
 // ---- SPA (everything else) -------------------------------------------------
-app.MapFallback(async (HttpContext http, StaticSite site) =>
+// Explicit catch-all pattern: the parameterless MapFallback uses "{*path:nonfile}", whose
+// :nonfile constraint excludes file-like paths (e.g. /assets/app.js) so they'd 404 instead of
+// being served from S3. "/{**path}" matches every unrouted path, files included.
+app.MapFallback("/{**path}", async (HttpContext http, StaticSite site) =>
 {
     var (status, body, type) = await site.ServeAsync(http.Request.Path, http.RequestAborted);
     http.Response.StatusCode = status;

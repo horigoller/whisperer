@@ -27,6 +27,19 @@ Parameters:
     Type: String
     Default: ""
     Description: E.164 WhatsApp number for the bootstrap admin's login codes.
+  WhispererDomainName:
+    Type: String
+    Default: ""
+    Description: Optional custom domain for the console (e.g. whisperer.e-goller.com).
+  WhispererCertArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN (us-east-1) for the custom domain. Required to attach the domain.
+
+Conditions:
+  HasWhispererDomain: !And
+    - !Not [!Equals [!Ref WhispererDomainName, ""]]
+    - !Not [!Equals [!Ref WhispererCertArn, ""]]
 
 Globals:
   Function:
@@ -302,6 +315,35 @@ Resources:
                 - social-messaging:ListWhatsAppMessageTemplates
                 - social-messaging:GetWhatsAppMessageTemplate
               Resource: '*'
+      Events:
+        # $default route (no Path/Method) → the Lambda handles every path, same as the Function URL.
+        ProxyAll:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ConsoleHttpApi
+
+  # HTTP API in front of the console, for the custom domain whisperer.e-goller.com.
+  ConsoleHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+
+  ConsoleApiDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasWhispererDomain
+    Properties:
+      DomainName: !Ref WhispererDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref WhispererCertArn
+          EndpointType: REGIONAL
+
+  ConsoleApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasWhispererDomain
+    Properties:
+      ApiId: !Ref ConsoleHttpApi
+      DomainName: !Ref ConsoleApiDomain
+      Stage: $default
 
   AppIngestFunction:
     Type: AWS::Serverless::Function
@@ -351,6 +393,13 @@ Outputs:
   AppUrl:
     Description: Open this URL to use the management console.
     Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  ConsoleApiEndpoint:
+    Description: API Gateway HTTP API endpoint for the console.
+    Value: !GetAtt ConsoleHttpApi.ApiEndpoint
+  WhispererDomainTarget:
+    Condition: HasWhispererDomain
+    Description: CNAME target to set at your DNS provider for the custom domain.
+    Value: !GetAtt ConsoleApiDomain.RegionalDomainName
   WebBucketName:
     Description: Sync the built React app here (app/deploy-web.sh).
     Value: !Ref WebBucket

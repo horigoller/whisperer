@@ -78,4 +78,13 @@ public sealed class WhatsAppStatusError
 
     [JsonPropertyName("message")]
     public string? Message { get; init; }
+
+    [JsonPropertyName("error_data")]
+    public WhatsAppStatusErrorData? ErrorData { get; init; }
+}
+
+public sealed class WhatsAppStatusErrorData
+{
+    [JsonPropertyName("details")]
+    public string? Details { get; init; }
 }
