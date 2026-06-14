@@ -16,17 +16,20 @@ public sealed class AuthService
 {
     private readonly IAppRepository _repo;
     private readonly IWhatsAppMessageService _whatsapp;
+    private readonly ITemplateService _templates;
     private readonly AppOptions _options;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IAppRepository repo,
         IWhatsAppMessageService whatsapp,
+        ITemplateService templates,
         IOptions<AppOptions> options,
         ILogger<AuthService> logger)
     {
         _repo = repo;
         _whatsapp = whatsapp;
+        _templates = templates;
         _options = options.Value;
         _logger = logger;
     }
@@ -127,39 +130,47 @@ public sealed class AuthService
 
     private async Task DeliverCodeAsync(string challengeId, string phoneE164, string code, CancellationToken ct)
     {
-        // Stamp the challengeId as biz_opaque_callback_data so an async delivery-failure webhook
-        // (e.g. 131037) can be correlated back to this challenge and shown on the login page.
-        var body = $"Your Whisperer login code is {code}. It expires in 5 minutes.";
-        try
+        // Prefer the AUTHENTICATION template — it delivers even outside the recipient's 24h window
+        // (free-form would fail there with 131047). Only use it when actually approved: an
+        // unapproved/nonexistent template "succeeds" then fails asynchronously, which would silently
+        // break in-window logins. Falls back to free-form (in-window) until the template clears.
+        // Both carry biz_opaque_callback_data = challengeId for async delivery-failure correlation.
+        var useTemplate = !string.IsNullOrEmpty(_options.LoginTemplateName)
+            && await IsLoginTemplateApprovedAsync(ct);
+        if (useTemplate)
         {
-            await _whatsapp.SendMessageAsync(new WhatsAppTextMessage
-            {
-                To = phoneE164,
-                Text = new WhatsAppTextBody { Body = body },
-                BizOpaqueCallbackData = challengeId,
-            }, ct);
+            await _whatsapp.SendMessageAsync(BuildLoginTemplate(challengeId, phoneE164, code), ct);
+            return;
         }
-        catch when (!string.IsNullOrEmpty(_options.LoginTemplateName))
+
+        await _whatsapp.SendMessageAsync(new WhatsAppTextMessage
         {
-            // Outside the 24h window free-form fails; fall back to the OTP template.
-            await _whatsapp.SendMessageAsync(new WhatsAppTemplateMessage
-            {
-                To = phoneE164,
-                BizOpaqueCallbackData = challengeId,
-                Template = new WhatsAppTemplate
-                {
-                    Name = _options.LoginTemplateName,
-                    Language = new WhatsAppTemplateLanguage { Code = "en_US" },
-                    Components = new[]
-                    {
-                        new WhatsAppTemplateComponent
-                        {
-                            Type = "body",
-                            Parameters = new[] { WhatsAppTemplateParameter.FromText(code) },
-                        },
-                    },
-                },
-            }, ct);
-        }
+            To = phoneE164,
+            Text = new WhatsAppTextBody { Body = $"Your Whisperer login code is {code}. It expires in 5 minutes." },
+            BizOpaqueCallbackData = challengeId,
+        }, ct);
     }
+
+    private async Task<bool> IsLoginTemplateApprovedAsync(CancellationToken ct)
+    {
+        try { return await _templates.IsApprovedAsync(_options.LoginTemplateName, ct); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not check login template approval"); return false; }
+    }
+
+    private WhatsAppTemplateMessage BuildLoginTemplate(string challengeId, string phoneE164, string code) => new()
+    {
+        To = phoneE164,
+        BizOpaqueCallbackData = challengeId,
+        Template = new WhatsAppTemplate
+        {
+            Name = _options.LoginTemplateName,
+            Language = new WhatsAppTemplateLanguage { Code = "en_US" },
+            // Authentication template: the code fills the body AND the copy-code (OTP) button.
+            Components = new[]
+            {
+                new WhatsAppTemplateComponent { Type = "body", Parameters = new[] { WhatsAppTemplateParameter.FromText(code) } },
+                new WhatsAppTemplateComponent { Type = "button", SubType = "url", Index = "0", Parameters = new[] { WhatsAppTemplateParameter.FromText(code) } },
+            },
+        },
+    };
 }

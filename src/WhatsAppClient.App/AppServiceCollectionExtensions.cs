@@ -39,7 +39,7 @@ public static class AppServiceCollectionExtensions
         services.AddScoped<ConversationService>();
         services.AddScoped<ContactService>();
         services.AddScoped<UserService>();
-        services.AddScoped<TemplateService>();
+        services.AddScoped<ITemplateService, TemplateService>();
 
         return services;
     }

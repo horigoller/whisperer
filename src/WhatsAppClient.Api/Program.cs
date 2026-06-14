@@ -179,7 +179,7 @@ users.MapDelete("/{username}", async (string username, UserService svc, HttpCont
 }).AddEndpointFilter(Security.AdminFilter);
 
 // ---- Templates -------------------------------------------------------------
-api.MapGet("/templates", async (TemplateService svc) => Results.Ok(new { templates = await svc.ListApprovedAsync() }))
+api.MapGet("/templates", async (ITemplateService svc) => Results.Ok(new { templates = await svc.ListApprovedAsync() }))
     .AddEndpointFilter(Security.AuthFilter);
 
 api.MapGet("/health", () => Results.Ok(new { ok = true }));

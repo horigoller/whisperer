@@ -7,7 +7,13 @@ namespace WhatsAppClient.App.Services;
 
 public sealed record ApprovedTemplate(string Name, string? Language, string? Category);
 
-public sealed class TemplateService
+public interface ITemplateService
+{
+    Task<IReadOnlyList<ApprovedTemplate>> ListApprovedAsync(CancellationToken ct = default);
+    Task<bool> IsApprovedAsync(string name, CancellationToken ct = default);
+}
+
+public sealed class TemplateService : ITemplateService
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
     private static volatile CacheEntry? _cache; // shared across the container's scoped instances
@@ -49,5 +55,11 @@ public sealed class TemplateService
 
         _cache = new CacheEntry(DateTimeOffset.UtcNow, result);
         return result;
+    }
+
+    public async Task<bool> IsApprovedAsync(string name, CancellationToken ct = default)
+    {
+        var approved = await ListApprovedAsync(ct);
+        return approved.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 }

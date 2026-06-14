@@ -15,15 +15,27 @@ public class AuthServiceTests
 {
     private readonly InMemoryAppRepository _repo = new();
     private readonly Mock<IWhatsAppMessageService> _whatsapp = new();
-    private string? _sentBody;
+    private readonly Mock<ITemplateService> _templates = new();
+    private WhatsAppMessage? _sent;
+    private string? _sentBody; // the 6-digit code, extracted from whichever message type was sent
 
-    private AuthService CreateService(AppOptions? options = null)
+    private AuthService CreateService(AppOptions? options = null, bool templateApproved = false)
     {
-        // The login code is sent via SendMessageAsync (a WhatsAppTextMessage) so it can carry
-        // biz_opaque_callback_data = challengeId.
+        _templates.Setup(t => t.IsApprovedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(templateApproved);
+
         _whatsapp
             .Setup(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()))
-            .Callback<WhatsAppMessage, CancellationToken>((m, _) => _sentBody = (m as WhatsAppTextMessage)?.Text.Body)
+            .Callback<WhatsAppMessage, CancellationToken>((m, _) =>
+            {
+                _sent = m;
+                var raw = m switch
+                {
+                    WhatsAppTextMessage t => t.Text.Body,
+                    WhatsAppTemplateMessage tm => tm.Template.Components?.FirstOrDefault(c => c.Type == "body")?.Parameters.FirstOrDefault()?.Text,
+                    _ => null,
+                };
+                _sentBody = raw is null ? null : Regex.Match(raw, @"\d{6}").Value;
+            })
             .ReturnsAsync(new SendWhatsAppMessageResult("wamid.code"));
 
         options ??= new AppOptions
@@ -33,10 +45,10 @@ public class AuthServiceTests
             BootstrapAdminPhone = "+15551112222",
             LoginTemplateName = "login_code",
         };
-        return new AuthService(_repo, _whatsapp.Object, Options.Create(options), NullLogger<AuthService>.Instance);
+        return new AuthService(_repo, _whatsapp.Object, _templates.Object, Options.Create(options), NullLogger<AuthService>.Instance);
     }
 
-    private string ExtractCode() => Regex.Match(_sentBody!, @"\b(\d{6})\b").Groups[1].Value;
+    private string ExtractCode() => _sentBody!;
 
     [Fact]
     public async Task StartAsync_SeedsBootstrapAdmin_AndSendsCode()
@@ -48,8 +60,27 @@ public class AuthServiceTests
         Assert.NotEmpty(challengeId);
         Assert.Single(_repo.Users);
         Assert.True(_repo.Challenges.ContainsKey(challengeId));
-        Assert.Matches(@"login code is \d{6}", _sentBody!);
+        Assert.Matches(@"^\d{6}$", _sentBody!); // 6-digit code (template body parameter)
         _whatsapp.Verify(w => w.SendMessageAsync(It.Is<WhatsAppMessage>(m => m.To == "+15551112222"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task StartAsync_TemplateNotApproved_SendsFreeFormText()
+    {
+        await CreateService(templateApproved: false).StartAsync("admin");
+        Assert.IsType<WhatsAppTextMessage>(_sent);
+        Assert.Matches(@"^\d{6}$", _sentBody!);
+    }
+
+    [Fact]
+    public async Task StartAsync_TemplateApproved_SendsAuthenticationTemplate()
+    {
+        await CreateService(templateApproved: true).StartAsync("admin");
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        Assert.Equal("login_code", tmpl.Template.Name);
+        // body + copy-code button both carry the code
+        Assert.Equal(2, tmpl.Template.Components!.Count);
+        Assert.Matches(@"^\d{6}$", _sentBody!);
     }
 
     [Fact]
