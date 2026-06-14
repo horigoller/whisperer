@@ -54,7 +54,9 @@ public sealed class InMemoryAppRepository : IAppRepository
                 .Where(m => string.CompareOrdinal(m.CreatedAt, afterCreatedAt) > 0)
                 .OrderBy(m => m.CreatedAt, StringComparer.Ordinal).ToList());
 
-    public Task<bool> PatchMessageStatusByRefAsync(string opaqueId, string status, string? metaMessageId, CancellationToken ct = default)
+    public Task<bool> PatchMessageStatusByRefAsync(
+        string opaqueId, string status, string? metaMessageId,
+        int? errorCode = null, string? errorDetail = null, CancellationToken ct = default)
     {
         foreach (var list in Messages.Values)
         {
@@ -63,6 +65,8 @@ public sealed class InMemoryAppRepository : IAppRepository
             {
                 m.Status = status;
                 if (!string.IsNullOrEmpty(metaMessageId)) m.WaMessageId = metaMessageId;
+                if (errorCode is { } c) m.ErrorCode = c;
+                if (!string.IsNullOrEmpty(errorDetail)) m.ErrorDetail = errorDetail;
                 return Task.FromResult(true);
             }
         }

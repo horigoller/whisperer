@@ -34,8 +34,13 @@ public sealed class AppIngestProcessor
             case "StatusUpdated" when evt.Detail?.Status is { Status: { } status } s:
                 // Correlate by the opaque id we stamped on send; the status also carries the Meta wamid.
                 if (string.IsNullOrEmpty(s.BizOpaqueCallbackData))
+                {
                     _logger.LogInformation("Status {Status} for {Id} has no biz_opaque_callback_data; cannot correlate", status, s.Id);
-                else if (!await _repo.PatchMessageStatusByRefAsync(s.BizOpaqueCallbackData, status, s.Id, ct))
+                    break;
+                }
+                var error = s.Errors?.FirstOrDefault();
+                var errorDetail = error?.ErrorData?.Details ?? error?.Message ?? error?.Title;
+                if (!await _repo.PatchMessageStatusByRefAsync(s.BizOpaqueCallbackData, status, s.Id, error?.Code, errorDetail, ct))
                     _logger.LogInformation("No stored message for opaque ref {Ref}", s.BizOpaqueCallbackData);
                 break;
 

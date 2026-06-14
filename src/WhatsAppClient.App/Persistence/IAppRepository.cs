@@ -30,7 +30,9 @@ public interface IAppRepository
     /// Patch an outbound message's status, located by the opaque id we sent as
     /// <c>biz_opaque_callback_data</c>; records the Meta wamid when provided. Returns false if no match.
     /// </summary>
-    Task<bool> PatchMessageStatusByRefAsync(string opaqueId, string status, string? metaMessageId, CancellationToken ct = default);
+    Task<bool> PatchMessageStatusByRefAsync(
+        string opaqueId, string status, string? metaMessageId,
+        int? errorCode = null, string? errorDetail = null, CancellationToken ct = default);
 
     /// <summary>
     /// Returns true if a login code may be sent to <paramref name="username"/> now, atomically

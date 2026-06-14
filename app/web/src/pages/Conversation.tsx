@@ -74,8 +74,15 @@ export function Conversation() {
             <div className="bubble-text">{m.text ?? (m.mediaId ? `[${m.type}]` : "—")}</div>
             <div className="bubble-meta">
               {clockTime(m.createdAt)}
-              {m.direction === "out" && <span className="status"> · {m.status}</span>}
+              {m.direction === "out" && (
+                <span className={m.status === "failed" ? "status failed" : "status"}> · {m.status}</span>
+              )}
             </div>
+            {m.status === "failed" && (m.errorDetail || m.errorCode) && (
+              <div className="bubble-error" title={m.errorDetail ?? ""}>
+                ⚠ {m.errorCode ? `${m.errorCode}: ` : ""}{m.errorDetail ?? "delivery failed"}
+              </div>
+            )}
           </div>
         ))}
         <div ref={endRef} />

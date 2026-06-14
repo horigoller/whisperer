@@ -97,6 +97,41 @@ public class AppIngestProcessorTests
     }
 
     [Fact]
+    public async Task StatusUpdated_Failed_CapturesErrorCodeAndDetail()
+    {
+        await _repo.PutMessageAsync(new ChatMessage
+        {
+            WaId = "15551239999", Id = "local-2", Direction = "out", Type = "text", Text = "hi",
+            Status = "sent", SentBy = "agent1", CreatedAt = "t",
+        });
+
+        await Processor().ProcessAsync(new AppInboundEvent
+        {
+            DetailType = "StatusUpdated",
+            Detail = new AppInboundDetail
+            {
+                Status = new WhatsAppStatus
+                {
+                    Id = "wamid.OUT", Status = "failed", BizOpaqueCallbackData = "local-2",
+                    Errors =
+                    [
+                        new WhatsAppStatusError
+                        {
+                            Code = 131037,
+                            ErrorData = new WhatsAppStatusErrorData { Details = "needs display name approval" },
+                        },
+                    ],
+                },
+            },
+        });
+
+        var m = (await _repo.ListMessagesAsync("15551239999"))[0];
+        Assert.Equal("failed", m.Status);
+        Assert.Equal(131037, m.ErrorCode);
+        Assert.Equal("needs display name approval", m.ErrorDetail);
+    }
+
+    [Fact]
     public async Task StatusUpdated_WithoutOpaqueRef_IsIgnored()
     {
         await Processor().ProcessAsync(new AppInboundEvent

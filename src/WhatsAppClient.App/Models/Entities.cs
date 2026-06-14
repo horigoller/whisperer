@@ -51,6 +51,12 @@ public sealed class ChatMessage
     public string? WaMessageId { get; set; }
     public string? SentBy { get; set; }
     public string? TemplateName { get; set; }
+
+    /// <summary>WhatsApp error code when <see cref="Status"/> is "failed" (e.g. 131037).</summary>
+    public int? ErrorCode { get; set; }
+
+    /// <summary>Human-readable failure reason when <see cref="Status"/> is "failed".</summary>
+    public string? ErrorDetail { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
 }
 

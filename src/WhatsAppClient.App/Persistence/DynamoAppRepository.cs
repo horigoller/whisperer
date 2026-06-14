@@ -209,7 +209,8 @@ public sealed class DynamoAppRepository : IAppRepository
     }
 
     public async Task<bool> PatchMessageStatusByRefAsync(
-        string opaqueId, string status, string? metaMessageId, CancellationToken ct = default)
+        string opaqueId, string status, string? metaMessageId,
+        int? errorCode = null, string? errorDetail = null, CancellationToken ct = default)
     {
         var r = await _db.QueryAsync(new QueryRequest
         {
@@ -222,19 +223,29 @@ public sealed class DynamoAppRepository : IAppRepository
         var item = r.Items.FirstOrDefault();
         if (item is null) return false;
 
-        var update = "SET #s = :s";
+        var sets = new List<string> { "#s = :s" };
         var values = new Dictionary<string, AttributeValue> { [":s"] = S(status) };
         var names = new Dictionary<string, string> { ["#s"] = "Status" };
         if (!string.IsNullOrEmpty(metaMessageId))
         {
-            update += ", WaMessageId = :m"; // record the real Meta wamid once we learn it
+            sets.Add("WaMessageId = :m"); // record the real Meta wamid once we learn it
             values[":m"] = S(metaMessageId);
+        }
+        if (errorCode is { } code)
+        {
+            sets.Add("ErrorCode = :ec");
+            values[":ec"] = new AttributeValue { N = code.ToString() };
+        }
+        if (!string.IsNullOrEmpty(errorDetail))
+        {
+            sets.Add("ErrorDetail = :ed");
+            values[":ed"] = S(errorDetail);
         }
         await _db.UpdateItemAsync(new UpdateItemRequest
         {
             TableName = _table,
             Key = new() { ["PK"] = item["PK"], ["SK"] = item["SK"] },
-            UpdateExpression = update,
+            UpdateExpression = "SET " + string.Join(", ", sets),
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values,
         }, ct);
@@ -410,6 +421,8 @@ public sealed class DynamoAppRepository : IAppRepository
         WaMessageId = GetSOrNull(i, "WaMessageId"),
         SentBy = GetSOrNull(i, "SentBy"),
         TemplateName = GetSOrNull(i, "TemplateName"),
+        ErrorCode = i.TryGetValue("ErrorCode", out var ec) && int.TryParse(ec.N, out var n) ? n : null,
+        ErrorDetail = GetSOrNull(i, "ErrorDetail"),
         CreatedAt = GetS(i, "CreatedAt"),
     };
 }
