@@ -45,6 +45,9 @@ export const api = {
   startLogin: (username: string) => req<{ challengeId: string }>("/auth/start", { method: "POST", body: JSON.stringify({ username }) }),
   verify: (challengeId: string, code: string) =>
     req<{ token: string; user: SessionUser }>("/auth/verify", { method: "POST", body: JSON.stringify({ challengeId, code }) }),
+  codeDelivery: (challengeId: string) =>
+    req<{ failed: boolean; errorCode: number | null; errorDetail: string | null }>(
+      `/auth/delivery?challengeId=${encodeURIComponent(challengeId)}`),
   me: () => req<{ user: SessionUser }>("/auth/me"),
   logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
 

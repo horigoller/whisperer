@@ -50,6 +50,13 @@ auth.MapPost("/verify", async (VerifyRequest req, AuthService svc, ISessionToken
     return Results.Ok(new { token, user = new { username = user.Username, displayName = user.DisplayName, role = user.Role.ToString() } });
 });
 
+// Lets the login page show why a code didn't arrive (async delivery failures like 131037).
+auth.MapGet("/delivery", async (string challengeId, AuthService svc) =>
+{
+    var d = await svc.GetCodeDeliveryAsync(challengeId);
+    return Results.Ok(new { failed = d.Failed, errorCode = d.ErrorCode, errorDetail = d.ErrorDetail });
+});
+
 auth.MapPost("/logout", (HttpContext http) =>
 {
     http.Response.Cookies.Delete("session");

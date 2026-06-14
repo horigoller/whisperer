@@ -19,9 +19,11 @@ public class AuthServiceTests
 
     private AuthService CreateService(AppOptions? options = null)
     {
+        // The login code is sent via SendMessageAsync (a WhatsAppTextMessage) so it can carry
+        // biz_opaque_callback_data = challengeId.
         _whatsapp
-            .Setup(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, bool, CancellationToken>((_, body, _, _) => _sentBody = body)
+            .Setup(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()))
+            .Callback<WhatsAppMessage, CancellationToken>((m, _) => _sentBody = (m as WhatsAppTextMessage)?.Text.Body)
             .ReturnsAsync(new SendWhatsAppMessageResult("wamid.code"));
 
         options ??= new AppOptions
@@ -47,7 +49,7 @@ public class AuthServiceTests
         Assert.Single(_repo.Users);
         Assert.True(_repo.Challenges.ContainsKey(challengeId));
         Assert.Matches(@"login code is \d{6}", _sentBody!);
-        _whatsapp.Verify(w => w.SendTextMessageAsync("+15551112222", It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _whatsapp.Verify(w => w.SendMessageAsync(It.Is<WhatsAppMessage>(m => m.To == "+15551112222"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -60,7 +62,7 @@ public class AuthServiceTests
 
         Assert.NotEmpty(challengeId);
         Assert.False(_repo.Challenges.ContainsKey(challengeId));
-        _whatsapp.Verify(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _whatsapp.Verify(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -73,7 +75,7 @@ public class AuthServiceTests
         await svc.StartAsync("admin"); // immediate retry → should be rate-limited
 
         Assert.Null(_sentBody);
-        _whatsapp.Verify(w => w.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _whatsapp.Verify(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

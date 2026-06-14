@@ -309,7 +309,35 @@ public sealed class DynamoAppRepository : IAppRepository
             CodeHash = GetS(item, "CodeHash"),
             Attempts = (int)GetN(item, "Attempts"),
             Ttl = GetN(item, "ttl"),
+            DeliveryErrorCode = item.TryGetValue("DeliveryErrorCode", out var dc) && int.TryParse(dc.N, out var dn) ? dn : null,
+            DeliveryError = GetSOrNull(item, "DeliveryError"),
         };
+    }
+
+    public async Task PatchAuthDeliveryErrorAsync(string challengeId, int? errorCode, string? errorDetail, CancellationToken ct = default)
+    {
+        var values = new Dictionary<string, AttributeValue> { [":e"] = S(errorDetail ?? "delivery failed") };
+        var update = "SET DeliveryError = :e";
+        if (errorCode is { } code)
+        {
+            update += ", DeliveryErrorCode = :c";
+            values[":c"] = new AttributeValue { N = code.ToString() };
+        }
+        try
+        {
+            await _db.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _table,
+                Key = new() { ["PK"] = S(AuthPk(challengeId)), ["SK"] = S("CHALLENGE") },
+                UpdateExpression = update,
+                ConditionExpression = "attribute_exists(PK)", // only if the challenge is still pending
+                ExpressionAttributeValues = values,
+            }, ct);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Challenge already consumed/expired, or this status wasn't a login code — ignore.
+        }
     }
 
     public Task IncrementAuthAttemptsAsync(string challengeId, CancellationToken ct = default) =>

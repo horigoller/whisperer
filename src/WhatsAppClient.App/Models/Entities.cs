@@ -69,6 +69,10 @@ public sealed class AuthChallenge
 
     /// <summary>Unix epoch seconds; DynamoDB TTL attribute.</summary>
     public long Ttl { get; set; }
+
+    /// <summary>Set if the login code couldn't be delivered (so the login page can explain why).</summary>
+    public int? DeliveryErrorCode { get; set; }
+    public string? DeliveryError { get; set; }
 }
 
 /// <summary>Authenticated principal carried in the session JWT.</summary>

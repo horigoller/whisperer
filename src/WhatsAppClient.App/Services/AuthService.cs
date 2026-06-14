@@ -9,6 +9,9 @@ using WhatsAppClient.Core.Services;
 
 namespace WhatsAppClient.App.Services;
 
+/// <summary>Whether a login code failed to deliver, and why.</summary>
+public sealed record CodeDelivery(bool Failed, int? ErrorCode, string? ErrorDetail);
+
 public sealed class AuthService
 {
     private readonly IAppRepository _repo;
@@ -50,15 +53,26 @@ public sealed class AuthService
 
             try
             {
-                await DeliverCodeAsync(user.PhoneE164, code, ct);
+                await DeliverCodeAsync(challengeId, user.PhoneE164, code, ct);
             }
             catch (Exception ex)
             {
+                // Synchronous send failure — record it so the login page can explain.
                 _logger.LogError(ex, "Failed to deliver login code");
+                await _repo.PatchAuthDeliveryErrorAsync(challengeId, null, ex.Message, ct);
             }
         }
 
         return challengeId;
+    }
+
+    /// <summary>Delivery status of a login code, so the login page can explain a non-arriving code.</summary>
+    public async Task<CodeDelivery> GetCodeDeliveryAsync(string challengeId, CancellationToken ct = default)
+    {
+        var challenge = await _repo.GetAuthChallengeAsync(challengeId, ct);
+        return challenge?.DeliveryError is { } detail
+            ? new CodeDelivery(true, challenge.DeliveryErrorCode, detail)
+            : new CodeDelivery(false, null, null);
     }
 
     /// <summary>Verify a code; returns the authenticated user or null.</summary>
@@ -111,25 +125,41 @@ public sealed class AuthService
         return null;
     }
 
-    private async Task DeliverCodeAsync(string phoneE164, string code, CancellationToken ct)
+    private async Task DeliverCodeAsync(string challengeId, string phoneE164, string code, CancellationToken ct)
     {
-        var body = $"Your Goller's Whisperer login code is {code}. It expires in 5 minutes.";
+        // Stamp the challengeId as biz_opaque_callback_data so an async delivery-failure webhook
+        // (e.g. 131037) can be correlated back to this challenge and shown on the login page.
+        var body = $"Your Whisperer login code is {code}. It expires in 5 minutes.";
         try
         {
-            await _whatsapp.SendTextMessageAsync(phoneE164, body, cancellationToken: ct);
+            await _whatsapp.SendMessageAsync(new WhatsAppTextMessage
+            {
+                To = phoneE164,
+                Text = new WhatsAppTextBody { Body = body },
+                BizOpaqueCallbackData = challengeId,
+            }, ct);
         }
         catch when (!string.IsNullOrEmpty(_options.LoginTemplateName))
         {
             // Outside the 24h window free-form fails; fall back to the OTP template.
-            var components = new[]
+            await _whatsapp.SendMessageAsync(new WhatsAppTemplateMessage
             {
-                new WhatsAppTemplateComponent
+                To = phoneE164,
+                BizOpaqueCallbackData = challengeId,
+                Template = new WhatsAppTemplate
                 {
-                    Type = "body",
-                    Parameters = new[] { WhatsAppTemplateParameter.FromText(code) },
+                    Name = _options.LoginTemplateName,
+                    Language = new WhatsAppTemplateLanguage { Code = "en_US" },
+                    Components = new[]
+                    {
+                        new WhatsAppTemplateComponent
+                        {
+                            Type = "body",
+                            Parameters = new[] { WhatsAppTemplateParameter.FromText(code) },
+                        },
+                    },
                 },
-            };
-            await _whatsapp.SendTemplateMessageAsync(phoneE164, _options.LoginTemplateName, "en_US", components, ct);
+            }, ct);
         }
     }
 }

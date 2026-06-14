@@ -42,6 +42,9 @@ public interface IAppRepository
 
     Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default);
     Task<AuthChallenge?> GetAuthChallengeAsync(string challengeId, CancellationToken ct = default);
+
+    /// <summary>Record a login-code delivery failure on the challenge, if it still exists (no-op otherwise).</summary>
+    Task PatchAuthDeliveryErrorAsync(string challengeId, int? errorCode, string? errorDetail, CancellationToken ct = default);
     Task IncrementAuthAttemptsAsync(string challengeId, CancellationToken ct = default);
     Task DeleteAuthChallengeAsync(string challengeId, CancellationToken ct = default);
 }

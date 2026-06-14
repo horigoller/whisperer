@@ -40,8 +40,17 @@ public sealed class AppIngestProcessor
                 }
                 var error = s.Errors?.FirstOrDefault();
                 var errorDetail = error?.ErrorData?.Details ?? error?.Message ?? error?.Title;
-                if (!await _repo.PatchMessageStatusByRefAsync(s.BizOpaqueCallbackData, status, s.Id, error?.Code, errorDetail, ct))
+                var matched = await _repo.PatchMessageStatusByRefAsync(
+                    s.BizOpaqueCallbackData, status, s.Id, error?.Code, errorDetail, ct);
+                if (!matched && status == "failed")
+                {
+                    // Not a stored conversation message — may be a login code (opaque == challengeId).
+                    await _repo.PatchAuthDeliveryErrorAsync(s.BizOpaqueCallbackData, error?.Code, errorDetail, ct);
+                }
+                else if (!matched)
+                {
                     _logger.LogInformation("No stored message for opaque ref {Ref}", s.BizOpaqueCallbackData);
+                }
                 break;
 
             default:

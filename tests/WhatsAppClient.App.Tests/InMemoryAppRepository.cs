@@ -85,6 +85,11 @@ public sealed class InMemoryAppRepository : IAppRepository
     public Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default) { Challenges[challenge.ChallengeId] = challenge; return Task.CompletedTask; }
     public Task<AuthChallenge?> GetAuthChallengeAsync(string challengeId, CancellationToken ct = default) =>
         Task.FromResult(Challenges.GetValueOrDefault(challengeId));
+    public Task PatchAuthDeliveryErrorAsync(string challengeId, int? errorCode, string? errorDetail, CancellationToken ct = default)
+    {
+        if (Challenges.TryGetValue(challengeId, out var c)) { c.DeliveryErrorCode = errorCode; c.DeliveryError = errorDetail ?? "delivery failed"; }
+        return Task.CompletedTask;
+    }
     public Task IncrementAuthAttemptsAsync(string challengeId, CancellationToken ct = default)
     {
         if (Challenges.TryGetValue(challengeId, out var c)) c.Attempts++;
