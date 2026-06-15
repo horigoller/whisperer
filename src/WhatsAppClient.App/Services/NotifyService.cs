@@ -9,7 +9,8 @@ namespace WhatsAppClient.App.Services;
 
 /// <summary>
 /// A machine-to-machine send request (e.g. from Home Assistant). Provide a recipient phone number
-/// and either <see cref="Text"/>, or media via <see cref="MediaUrl"/> or <see cref="MediaBase64"/>.
+/// and one of: <see cref="Template"/> (delivers outside the 24h window), <see cref="Text"/>, or media
+/// via <see cref="MediaUrl"/>/<see cref="MediaBase64"/> (both free-form, in-window only).
 /// </summary>
 public sealed record NotifyRequest(
     string? To,
@@ -18,7 +19,10 @@ public sealed record NotifyRequest(
     string? MediaBase64 = null,
     string? MediaType = null,   // "image" | "video"
     string? Caption = null,
-    string? Filename = null);
+    string? Filename = null,
+    string? Template = null,    // approved template name → window-proof
+    string? LanguageCode = null,
+    IReadOnlyList<string>? Params = null);
 
 public sealed record NotifyResult(string WaId, string MessageId, string? WaMessageId, string Kind);
 
@@ -54,9 +58,10 @@ public sealed class NotifyService
         var phoneE164 = PhoneNumbers.ToE164(req.To);           // throws ArgumentException on garbage
         var waId = PhoneNumbers.ToWaId(phoneE164);
 
+        var hasTemplate = !string.IsNullOrWhiteSpace(req.Template);
         var hasMedia = !string.IsNullOrWhiteSpace(req.MediaUrl) || !string.IsNullOrWhiteSpace(req.MediaBase64);
-        if (!hasMedia && string.IsNullOrWhiteSpace(req.Text))
-            throw new ArgumentException("Provide 'text' or media ('mediaUrl' or 'mediaBase64').");
+        if (!hasTemplate && !hasMedia && string.IsNullOrWhiteSpace(req.Text))
+            throw new ArgumentException("Provide 'template', 'text', or media ('mediaUrl' or 'mediaBase64').");
 
         // Only send to known contacts — add the number in the console first.
         if (await _repo.GetContactAsync(waId, ct) is null) throw new ContactNotFoundException(waId);
@@ -64,9 +69,20 @@ public sealed class NotifyService
         var id = Guid.NewGuid().ToString();
         WhatsAppMessage message;
         string kind, preview;
-        string? mediaS3Key = null, mediaUrl = null;
+        string? mediaS3Key = null, mediaUrl = null, templateName = null;
 
-        if (hasMedia)
+        if (hasTemplate)
+        {
+            // Templates deliver outside the 24h window (the whole point of this path).
+            var bodyParams = req.Params ?? [];
+            if (bodyParams.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("template 'params' must all be non-empty.");
+            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams);
+            kind = "template";
+            templateName = req.Template;
+            preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
+        }
+        else if (hasMedia)
         {
             var mediaType = NormalizeMediaType(req.MediaType);
             var caption = FirstNonBlank(req.Caption, req.Text);   // explicit caption, else the text
@@ -91,7 +107,7 @@ public sealed class NotifyService
         }
 
         var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
-        await PersistOutboundAsync(id, waId, kind, preview, awsId, sentBy, mediaS3Key, mediaUrl, ct);
+        await PersistOutboundAsync(id, waId, kind, preview, awsId, sentBy, mediaS3Key, mediaUrl, templateName, ct);
         return new NotifyResult(waId, id, awsId, kind);
     }
 
@@ -132,7 +148,7 @@ public sealed class NotifyService
 
     private async Task PersistOutboundAsync(
         string id, string waId, string kind, string preview, string? awsId, string sentBy,
-        string? mediaS3Key, string? mediaUrl, CancellationToken ct)
+        string? mediaS3Key, string? mediaUrl, string? templateName, CancellationToken ct)
     {
         var now = DateTime.UtcNow.ToString("o");
         var msg = new ChatMessage
@@ -144,6 +160,7 @@ public sealed class NotifyService
             Text = preview,
             MediaS3Key = mediaS3Key,
             MediaUrl = mediaUrl,
+            TemplateName = templateName,
             Status = "sent",
             WaMessageId = awsId,
             SentBy = sentBy,

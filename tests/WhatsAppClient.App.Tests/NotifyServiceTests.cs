@@ -49,6 +49,29 @@ public class NotifyServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_Template_SendsTemplateOutsideWindow()
+    {
+        SeedContact();
+        var result = await Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_event", Params: new[] { "Garage door open" }));
+
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        Assert.Equal("home_event", tmpl.Template.Name);
+        Assert.Equal("en_US", tmpl.Template.Language.Code);
+        Assert.Equal("Garage door open", tmpl.Template.Components!.Single(c => c.Type == "body").Parameters.Single().Text);
+        Assert.False(string.IsNullOrEmpty(tmpl.BizOpaqueCallbackData));
+        Assert.Equal("template", result.Kind);
+        Assert.Equal("home_event", _repo.Messages["17742625384"][0].TemplateName);
+    }
+
+    [Fact]
+    public async Task SendAsync_TemplateBlankParam_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_event", Params: new[] { "ok", "  " })));
+    }
+
+    [Fact]
     public async Task SendAsync_UnknownContact_ThrowsAndDoesNotSend()
     {
         await Assert.ThrowsAsync<ContactNotFoundException>(() =>
