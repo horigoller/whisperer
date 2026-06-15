@@ -64,6 +64,14 @@ public class NotifyServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_TemplateBlankParam_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_event", Params: new[] { "ok", "  " })));
+    }
+
+    [Fact]
     public async Task SendAsync_UnknownContact_ThrowsAndDoesNotSend()
     {
         await Assert.ThrowsAsync<ContactNotFoundException>(() =>

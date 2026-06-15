@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 107 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 108 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (107 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (108 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →

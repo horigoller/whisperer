@@ -75,10 +75,12 @@ public sealed class NotifyService
         {
             // Templates deliver outside the 24h window (the whole point of this path).
             var bodyParams = req.Params ?? [];
-            message = BuildTemplateMessage(req.Template!, req.LanguageCode, bodyParams, phoneE164, id);
+            if (bodyParams.Any(string.IsNullOrWhiteSpace))
+                throw new ArgumentException("template 'params' must all be non-empty.");
+            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams);
             kind = "template";
             templateName = req.Template;
-            preview = bodyParams.Count > 0 ? string.Join(" ", bodyParams) : $"[template: {req.Template}]";
+            preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
         }
         else if (hasMedia)
         {
@@ -143,32 +145,6 @@ public sealed class NotifyService
         mediaType == "video"
             ? new WhatsAppVideoMessage { To = to, BizOpaqueCallbackData = id, Video = body }
             : new WhatsAppImageMessage { To = to, BizOpaqueCallbackData = id, Image = body };
-
-    private static WhatsAppMessage BuildTemplateMessage(
-        string name, string? languageCode, IReadOnlyList<string> bodyParams, string to, string id)
-    {
-        IReadOnlyList<WhatsAppTemplateComponent>? components = bodyParams.Count > 0
-            ? new[]
-            {
-                new WhatsAppTemplateComponent
-                {
-                    Type = "body",
-                    Parameters = bodyParams.Select(WhatsAppTemplateParameter.FromText).ToList(),
-                },
-            }
-            : null;
-        return new WhatsAppTemplateMessage
-        {
-            To = to,
-            BizOpaqueCallbackData = id,
-            Template = new WhatsAppTemplate
-            {
-                Name = name,
-                Language = new WhatsAppTemplateLanguage { Code = string.IsNullOrWhiteSpace(languageCode) ? "en_US" : languageCode },
-                Components = components,
-            },
-        };
-    }
 
     private async Task PersistOutboundAsync(
         string id, string waId, string kind, string preview, string? awsId, string sentBy,

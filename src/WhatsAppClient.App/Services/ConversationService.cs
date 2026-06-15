@@ -74,29 +74,8 @@ public sealed class ConversationService
     {
         var contact = await _repo.GetContactAsync(waId, ct) ?? throw new ContactNotFoundException(waId);
 
-        IReadOnlyList<WhatsAppTemplateComponent>? components = bodyParams.Count > 0
-            ? new[]
-            {
-                new WhatsAppTemplateComponent
-                {
-                    Type = "body",
-                    Parameters = bodyParams.Select(WhatsAppTemplateParameter.FromText).ToList(),
-                },
-            }
-            : null;
-
         var id = Guid.NewGuid().ToString();
-        var message = new WhatsAppTemplateMessage
-        {
-            To = contact.PhoneE164,
-            Template = new WhatsAppTemplate
-            {
-                Name = templateName,
-                Language = new WhatsAppTemplateLanguage { Code = languageCode },
-                Components = components,
-            },
-            BizOpaqueCallbackData = id,
-        };
+        var message = OutboundMessageFactory.Template(contact.PhoneE164, id, templateName, languageCode, bodyParams);
         var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
         return await PersistOutboundAsync(id, waId, "template", $"[template: {templateName}]", awsId, sentBy, templateName, ct);
     }

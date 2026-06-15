@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (107 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (108 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 107 tests
+dotnet test                              # 108 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
