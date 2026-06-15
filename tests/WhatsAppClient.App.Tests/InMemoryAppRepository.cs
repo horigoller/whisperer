@@ -45,6 +45,8 @@ public sealed class InMemoryAppRepository : IAppRepository
         list.Add(message);
         return Task.CompletedTask;
     }
+    public Task<ChatMessage?> GetMessageAsync(string waId, string id, CancellationToken ct = default) =>
+        Task.FromResult((Messages.GetValueOrDefault(waId) ?? []).FirstOrDefault(m => m.Id == id));
     public Task<IReadOnlyList<ChatMessage>> ListMessagesAsync(string waId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<ChatMessage>>(
             (Messages.GetValueOrDefault(waId) ?? []).OrderBy(m => m.CreatedAt, StringComparer.Ordinal).ToList());

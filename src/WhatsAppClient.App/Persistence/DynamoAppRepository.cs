@@ -175,13 +175,27 @@ public sealed class DynamoAppRepository : IAppRepository
         if (!string.IsNullOrEmpty(m.SentBy)) item["SentBy"] = S(m.SentBy);
         if (!string.IsNullOrEmpty(m.TemplateName)) item["TemplateName"] = S(m.TemplateName);
         if (!string.IsNullOrEmpty(m.WaMessageId)) item["WaMessageId"] = S(m.WaMessageId);
-        // Outbound messages are looked up by their id (= biz_opaque_callback_data) when a status arrives.
-        if (m.Direction == "out")
-        {
-            item["GSI1PK"] = S($"MSGREF#{m.Id}");
-            item["GSI1SK"] = S(m.WaId);
-        }
+        // Index every message by its id (= biz_opaque_callback_data for outbound): used to
+        // correlate a status to its outbound message, and to point-get media without a thread scan.
+        item["GSI1PK"] = S($"MSGREF#{m.Id}");
+        item["GSI1SK"] = S(m.WaId);
         return _db.PutItemAsync(new PutItemRequest { TableName = _table, Item = item }, ct);
+    }
+
+    public async Task<ChatMessage?> GetMessageAsync(string waId, string id, CancellationToken ct = default)
+    {
+        var r = await _db.QueryAsync(new QueryRequest
+        {
+            TableName = _table,
+            IndexName = Gsi1,
+            KeyConditionExpression = "GSI1PK = :p AND GSI1SK = :w",
+            ExpressionAttributeValues = new() { [":p"] = S($"MSGREF#{id}"), [":w"] = S(waId) },
+            Limit = 1,
+        }, ct);
+        var item = r.Items.FirstOrDefault();
+        if (item is not null) return ReadMessage(item);
+        // Messages stored before they were indexed by id fall back to a thread scan.
+        return (await ListMessagesAsync(waId, ct)).FirstOrDefault(m => m.Id == id);
     }
 
     public async Task<IReadOnlyList<ChatMessage>> ListMessagesAsync(string waId, CancellationToken ct = default)

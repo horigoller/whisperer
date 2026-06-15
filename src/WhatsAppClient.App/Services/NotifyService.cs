@@ -74,7 +74,7 @@ public sealed class NotifyService
             message = BuildMediaMessage(mediaType, phoneE164, id, body);
             kind = mediaType;
             mediaS3Key = s3Key;                                   // staged base64 media re-served from S3
-            mediaUrl = FirstNonBlank(req.MediaUrl, null);         // link media rendered directly by the console
+            mediaUrl = string.IsNullOrWhiteSpace(req.MediaUrl) ? null : req.MediaUrl;  // link media rendered directly
             // Preview mirrors what the recipient sees: the caption, or a media placeholder.
             preview = caption ?? $"[{mediaType}]";
         }

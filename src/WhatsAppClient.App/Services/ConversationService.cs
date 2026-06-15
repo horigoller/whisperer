@@ -45,8 +45,8 @@ public sealed class ConversationService
         _repo.ListMessagesAfterAsync(waId, afterCreatedAt, ct);
 
     /// <summary>Look up one message in a thread (used by the media-serving endpoint to authorize the S3 key).</summary>
-    public async Task<ChatMessage?> GetMessageAsync(string waId, string id, CancellationToken ct = default) =>
-        (await _repo.ListMessagesAsync(waId, ct)).FirstOrDefault(m => m.Id == id);
+    public Task<ChatMessage?> GetMessageAsync(string waId, string id, CancellationToken ct = default) =>
+        _repo.GetMessageAsync(waId, id, ct);
 
     /// <summary>Free-form reply; only allowed while the 24h window is open.</summary>
     public async Task<ChatMessage> ReplyAsync(string waId, string text, string sentBy, CancellationToken ct = default)

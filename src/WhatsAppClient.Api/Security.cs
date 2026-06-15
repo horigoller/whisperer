@@ -13,13 +13,21 @@ public static class Security
     public static SessionUser CurrentUser(this HttpContext ctx) => (SessionUser)ctx.Items[ItemKey]!;
 
     /// <summary>Endpoint filter requiring a valid session (Bearer header or `session` cookie).</summary>
-    public static async ValueTask<object?> AuthFilter(
-        EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
+    public static ValueTask<object?> AuthFilter(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next) =>
+        AuthCore(ctx, next, allowQueryToken: false);
+
+    /// <summary>Like <see cref="AuthFilter"/> but also accepts <c>?token=</c> — for &lt;img&gt;/&lt;video&gt; that
+    /// can't send a Bearer header. Scoped to the media endpoint so tokens don't leak into other URLs/logs.</summary>
+    public static ValueTask<object?> MediaAuthFilter(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next) =>
+        AuthCore(ctx, next, allowQueryToken: true);
+
+    private static async ValueTask<object?> AuthCore(
+        EndpointFilterInvocationContext ctx, EndpointFilterDelegate next, bool allowQueryToken)
     {
         var http = ctx.HttpContext;
         var tokens = http.RequestServices.GetRequiredService<ISessionTokenService>();
 
-        var token = ExtractToken(http);
+        var token = ExtractToken(http, allowQueryToken);
         var user = token is null ? null : await tokens.ValidateAsync(token, http.RequestAborted);
         if (user is null) return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
 
@@ -55,13 +63,16 @@ public static class Security
         return await next(ctx);
     }
 
-    private static string? ExtractToken(HttpContext http)
+    private static string? ExtractToken(HttpContext http, bool allowQueryToken)
     {
         var header = http.Request.Headers.Authorization.ToString();
         if (header.StartsWith("Bearer ", StringComparison.Ordinal)) return header["Bearer ".Length..];
         if (http.Request.Cookies.TryGetValue("session", out var c)) return c;
-        // Lets <img>/<video src> authenticate (they can't send a Bearer header), like the WS handshake.
-        var q = http.Request.Query["token"].ToString();
-        return string.IsNullOrEmpty(q) ? null : q;
+        if (allowQueryToken)
+        {
+            var q = http.Request.Query["token"].ToString();
+            if (!string.IsNullOrEmpty(q)) return q;
+        }
+        return null;
     }
 }

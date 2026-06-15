@@ -97,32 +97,6 @@ convos.MapGet("/{waId}/messages", async (string waId, ConversationService svc, H
     return Results.Ok(new { messages, conversation });
 });
 
-// Streams a message's media from the MediaBucket so the SPA can render images/videos inline.
-// Looking the message up first scopes the S3 read to media that belongs to this thread.
-convos.MapGet("/{waId}/media/{id}", async (
-    string waId, string id, ConversationService svc, IAmazonS3 s3, IOptions<AppOptions> appOptions, HttpContext http) =>
-{
-    var bucket = appOptions.Value.MediaBucketName;
-    var msg = await svc.GetMessageAsync(waId, id);
-    if (string.IsNullOrEmpty(bucket) || msg?.MediaS3Key is not { Length: > 0 } key)
-        return Results.NotFound();
-    try
-    {
-        using var obj = await s3.GetObjectAsync(bucket, key, http.RequestAborted);
-        var ms = new MemoryStream();
-        await obj.ResponseStream.CopyToAsync(ms, http.RequestAborted);
-        ms.Position = 0;
-        // Media for a given message id never changes — let the browser cache it.
-        http.Response.Headers.CacheControl = "private, max-age=86400";
-        var type = string.IsNullOrEmpty(obj.Headers.ContentType) ? "application/octet-stream" : obj.Headers.ContentType;
-        return Results.File(ms, type);
-    }
-    catch (AmazonS3Exception)
-    {
-        return Results.NotFound();
-    }
-});
-
 convos.MapPost("/{waId}/reply", async (string waId, ReplyRequest req, ConversationService svc, HttpContext http) =>
 {
     if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "text required" });
@@ -155,6 +129,54 @@ convos.MapPost("/{waId}/template", async (string waId, TemplateSendRequest req, 
         return Results.NotFound(new { error = "contact not found" });
     }
 });
+
+// Streams a message's media from the MediaBucket so the SPA can render images/videos inline.
+// Mapped on `api` (not the convos group) with MediaAuthFilter, which also accepts ?token= so
+// <img>/<video> can authenticate. Looking the message up first scopes the S3 read to this thread.
+api.MapGet("/conversations/{waId}/media/{id}", async (
+    string waId, string id, ConversationService svc, IAmazonS3 s3, IOptions<AppOptions> appOptions, HttpContext http) =>
+{
+    var bucket = appOptions.Value.MediaBucketName;
+    var msg = await svc.GetMessageAsync(waId, id);
+    if (string.IsNullOrEmpty(bucket) || msg?.MediaS3Key is not { Length: > 0 } key)
+        return Results.NotFound();
+    try
+    {
+        using var obj = await s3.GetObjectAsync(bucket, key, http.RequestAborted);
+        var ms = new MemoryStream();
+        await obj.ResponseStream.CopyToAsync(ms, http.RequestAborted);
+        ms.Position = 0;
+        // Media for a given message id never changes — let the browser cache it.
+        http.Response.Headers.CacheControl = "private, max-age=86400";
+        return Results.File(ms, MediaContentType(obj.Headers.ContentType, key, msg.Type));
+    }
+    catch (AmazonS3Exception)
+    {
+        return Results.NotFound();
+    }
+}).AddEndpointFilter(Security.MediaAuthFilter);
+
+// Trust the S3 object's content type, but fall back to the key extension / message type when it's
+// missing or a generic octet-stream (inbound media isn't guaranteed to carry an image/* type).
+static string MediaContentType(string? stored, string key, string messageType)
+{
+    if (!string.IsNullOrEmpty(stored) && stored is not "application/octet-stream" and not "binary/octet-stream")
+        return stored;
+    var ext = Path.GetExtension(key).ToLowerInvariant();
+    return ext switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".mp4" => "video/mp4",
+        ".3gp" => "video/3gpp",
+        ".mov" => "video/quicktime",
+        ".pdf" => "application/pdf",
+        ".ogg" or ".oga" => "audio/ogg",
+        _ => messageType switch { "video" => "video/mp4", "audio" => "audio/ogg", "image" => "image/jpeg", _ => "application/octet-stream" },
+    };
+}
 
 // ---- Contacts --------------------------------------------------------------
 var contacts = api.MapGroup("/contacts").AddEndpointFilter(Security.AuthFilter);

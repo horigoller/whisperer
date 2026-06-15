@@ -143,8 +143,8 @@ function MessageBody({ waId, m }: { waId: string; m: ChatMessage }) {
   }
   // Prefer a directly-renderable public URL (link sends); otherwise stream from our S3 endpoint.
   const src = m.mediaUrl ?? api.mediaSrc(waId, m.id);
-  // Text holds the caption unless it's a "[image]"/"[video]" placeholder.
-  const caption = m.text && !/^\[.*\]$/.test(m.text) ? m.text : null;
+  // Text holds the caption unless it's exactly the media placeholder we store (e.g. "[image]").
+  const caption = m.text && m.text !== `[${m.type}]` ? m.text : null;
   return (
     <div className="bubble-media">
       {m.type === "image" && <a href={src} target="_blank" rel="noreferrer"><img className="media-img" src={src} alt={caption ?? "image"} loading="lazy" /></a>}

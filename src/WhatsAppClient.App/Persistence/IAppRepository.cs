@@ -23,6 +23,7 @@ public interface IAppRepository
     Task ResetConversationUnreadAsync(string waId, CancellationToken ct = default);
 
     Task PutMessageAsync(ChatMessage message, CancellationToken ct = default);
+    Task<ChatMessage?> GetMessageAsync(string waId, string id, CancellationToken ct = default);
     Task<IReadOnlyList<ChatMessage>> ListMessagesAsync(string waId, CancellationToken ct = default);
     Task<IReadOnlyList<ChatMessage>> ListMessagesAfterAsync(string waId, string afterCreatedAt, CancellationToken ct = default);
 
