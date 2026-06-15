@@ -7,7 +7,7 @@ export interface Conversation {
 }
 export interface ChatMessage {
   waId: string; id: string; direction: "in" | "out"; type: string;
-  text: string | null; mediaId: string | null; mediaS3Key: string | null; status: string;
+  text: string | null; mediaId: string | null; mediaS3Key: string | null; mediaUrl: string | null; status: string;
   sentBy: string | null; templateName: string | null;
   errorCode: number | null; errorDetail: string | null; createdAt: string;
 }

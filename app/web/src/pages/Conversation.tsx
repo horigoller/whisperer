@@ -136,11 +136,13 @@ export function Conversation() {
 }
 
 function MessageBody({ waId, m }: { waId: string; m: ChatMessage }) {
-  const isMedia = !!m.mediaS3Key && (m.type === "image" || m.type === "video" || m.type === "document");
+  const isMediaType = m.type === "image" || m.type === "video" || m.type === "document";
+  const isMedia = isMediaType && (!!m.mediaS3Key || !!m.mediaUrl);
   if (!isMedia) {
     return <div className="bubble-text">{m.text ?? (m.mediaId ? `[${m.type}]` : "—")}</div>;
   }
-  const src = api.mediaSrc(waId, m.id);
+  // Prefer a directly-renderable public URL (link sends); otherwise stream from our S3 endpoint.
+  const src = m.mediaUrl ?? api.mediaSrc(waId, m.id);
   // Text holds the caption unless it's a "[image]"/"[video]" placeholder.
   const caption = m.text && !/^\[.*\]$/.test(m.text) ? m.text : null;
   return (

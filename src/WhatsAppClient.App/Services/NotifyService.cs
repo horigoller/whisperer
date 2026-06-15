@@ -64,7 +64,7 @@ public sealed class NotifyService
         var id = Guid.NewGuid().ToString();
         WhatsAppMessage message;
         string kind, preview;
-        string? mediaS3Key = null;
+        string? mediaS3Key = null, mediaUrl = null;
 
         if (hasMedia)
         {
@@ -73,7 +73,8 @@ public sealed class NotifyService
             var (body, s3Key) = await BuildMediaBodyAsync(req, mediaType, caption, ct);
             message = BuildMediaMessage(mediaType, phoneE164, id, body);
             kind = mediaType;
-            mediaS3Key = s3Key;   // staged base64 media is re-served to the console from S3
+            mediaS3Key = s3Key;                                   // staged base64 media re-served from S3
+            mediaUrl = FirstNonBlank(req.MediaUrl, null);         // link media rendered directly by the console
             // Preview mirrors what the recipient sees: the caption, or a media placeholder.
             preview = caption ?? $"[{mediaType}]";
         }
@@ -90,7 +91,7 @@ public sealed class NotifyService
         }
 
         var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
-        await PersistOutboundAsync(id, waId, kind, preview, awsId, sentBy, mediaS3Key, ct);
+        await PersistOutboundAsync(id, waId, kind, preview, awsId, sentBy, mediaS3Key, mediaUrl, ct);
         return new NotifyResult(waId, id, awsId, kind);
     }
 
@@ -130,7 +131,8 @@ public sealed class NotifyService
             : new WhatsAppImageMessage { To = to, BizOpaqueCallbackData = id, Image = body };
 
     private async Task PersistOutboundAsync(
-        string id, string waId, string kind, string preview, string? awsId, string sentBy, string? mediaS3Key, CancellationToken ct)
+        string id, string waId, string kind, string preview, string? awsId, string sentBy,
+        string? mediaS3Key, string? mediaUrl, CancellationToken ct)
     {
         var now = DateTime.UtcNow.ToString("o");
         var msg = new ChatMessage
@@ -141,6 +143,7 @@ public sealed class NotifyService
             Type = kind,
             Text = preview,
             MediaS3Key = mediaS3Key,
+            MediaUrl = mediaUrl,
             Status = "sent",
             WaMessageId = awsId,
             SentBy = sentBy,

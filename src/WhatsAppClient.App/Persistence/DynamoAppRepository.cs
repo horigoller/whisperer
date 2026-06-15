@@ -171,6 +171,7 @@ public sealed class DynamoAppRepository : IAppRepository
         if (!string.IsNullOrEmpty(m.Text)) item["Text"] = S(m.Text);
         if (!string.IsNullOrEmpty(m.MediaId)) item["MediaId"] = S(m.MediaId);
         if (!string.IsNullOrEmpty(m.MediaS3Key)) item["MediaS3Key"] = S(m.MediaS3Key);
+        if (!string.IsNullOrEmpty(m.MediaUrl)) item["MediaUrl"] = S(m.MediaUrl);
         if (!string.IsNullOrEmpty(m.SentBy)) item["SentBy"] = S(m.SentBy);
         if (!string.IsNullOrEmpty(m.TemplateName)) item["TemplateName"] = S(m.TemplateName);
         if (!string.IsNullOrEmpty(m.WaMessageId)) item["WaMessageId"] = S(m.WaMessageId);
@@ -477,6 +478,7 @@ public sealed class DynamoAppRepository : IAppRepository
         Text = GetSOrNull(i, "Text"),
         MediaId = GetSOrNull(i, "MediaId"),
         MediaS3Key = GetSOrNull(i, "MediaS3Key"),
+        MediaUrl = GetSOrNull(i, "MediaUrl"),
         Status = GetS(i, "Status"),
         WaMessageId = GetSOrNull(i, "WaMessageId"),
         SentBy = GetSOrNull(i, "SentBy"),

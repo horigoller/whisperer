@@ -67,6 +67,9 @@ public class NotifyServiceTests
         Assert.Equal("https://example.com/snap.jpg", img.Image.Link);
         Assert.Null(img.Image.Id);
         Assert.Equal("Front door", img.Image.Caption);
+        var persisted = _repo.Messages["17742625384"][0];
+        Assert.Equal("https://example.com/snap.jpg", persisted.MediaUrl);  // remote link kept for the console
+        Assert.Null(persisted.MediaS3Key);                                 // not staged in S3
         _mediaStore.Verify(s => s.StageAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         _media.Verify(m => m.UploadFromS3Async(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
