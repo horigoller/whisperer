@@ -69,6 +69,7 @@ public sealed class NotifyService
         var id = Guid.NewGuid().ToString();
         WhatsAppMessage message;
         string kind, preview;
+        string? persistType = null;   // overrides the persisted message Type (kind) when set
         string? mediaS3Key = null, mediaUrl = null, templateName = null;
 
         if (hasTemplate)
@@ -77,20 +78,37 @@ public sealed class NotifyService
             var bodyParams = req.Params ?? [];
             if (bodyParams.Any(string.IsNullOrWhiteSpace))
                 throw new ArgumentException("template 'params' must all be non-empty.");
-            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams);
-            kind = "template";
             templateName = req.Template;
-            preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
+            kind = "template";
+
+            WhatsAppTemplateParameter? header = null;
+            if (hasMedia)
+            {
+                // Attach media as the template's header (the template must have a matching media header).
+                var mt = NormalizeMediaType(req.MediaType);
+                var (mid, link, s3Key) = await ResolveMediaAsync(req, mt, ct);
+                header = HeaderParam(mt, mid, link);
+                mediaS3Key = s3Key;
+                mediaUrl = link;
+                persistType = mt;     // store as image/video so the console renders the header media
+                preview = bodyParams.Count > 0 ? string.Join(" ", bodyParams) : $"[{req.Template}]";
+            }
+            else
+            {
+                preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
+            }
+            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams, header);
         }
         else if (hasMedia)
         {
             var mediaType = NormalizeMediaType(req.MediaType);
             var caption = FirstNonBlank(req.Caption, req.Text);   // explicit caption, else the text
-            var (body, s3Key) = await BuildMediaBodyAsync(req, mediaType, caption, ct);
+            var (mid, link, s3Key) = await ResolveMediaAsync(req, mediaType, ct);
+            var body = new WhatsAppOutboundMedia { Id = mid, Link = link, Caption = caption, Filename = req.Filename };
             message = BuildMediaMessage(mediaType, phoneE164, id, body);
             kind = mediaType;
             mediaS3Key = s3Key;                                   // staged base64 media re-served from S3
-            mediaUrl = string.IsNullOrWhiteSpace(req.MediaUrl) ? null : req.MediaUrl;  // link media rendered directly
+            mediaUrl = link;                                      // link media rendered directly
             // Preview mirrors what the recipient sees: the caption, or a media placeholder.
             preview = caption ?? $"[{mediaType}]";
         }
@@ -107,7 +125,7 @@ public sealed class NotifyService
         }
 
         var awsId = (await _whatsapp.SendMessageAsync(message, ct)).MessageId;
-        await PersistOutboundAsync(id, waId, kind, preview, awsId, sentBy, mediaS3Key, mediaUrl, templateName, ct);
+        await PersistOutboundAsync(id, waId, persistType ?? kind, preview, awsId, sentBy, mediaS3Key, mediaUrl, templateName, ct);
         return new NotifyResult(waId, id, awsId, kind);
     }
 
@@ -123,11 +141,12 @@ public sealed class NotifyService
             _ => throw new ArgumentException("mediaType must be 'image' or 'video'."),
         };
 
-    private async Task<(WhatsAppOutboundMedia Body, string? S3Key)> BuildMediaBodyAsync(
-        NotifyRequest req, string mediaType, string? caption, CancellationToken ct)
+    /// <summary>Resolves the request's media to a WhatsApp reference: a public link, or a handle from
+    /// staging the base64 bytes in S3 and uploading them. Returns the staged S3 key for re-serving.</summary>
+    private async Task<(string? Id, string? Link, string? S3Key)> ResolveMediaAsync(
+        NotifyRequest req, string mediaType, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(req.MediaUrl))
-            return (new WhatsAppOutboundMedia { Link = req.MediaUrl, Caption = caption, Filename = req.Filename }, null);
+        if (!string.IsNullOrWhiteSpace(req.MediaUrl)) return (null, req.MediaUrl, null);
 
         byte[] bytes;
         try { bytes = Convert.FromBase64String(req.MediaBase64!); }
@@ -138,7 +157,15 @@ public sealed class NotifyService
 
         var (bucket, key) = await _mediaStore.StageAsync(bytes, mediaType, req.Filename, ct);
         var handle = await _media.UploadFromS3Async(bucket, key, ct);
-        return (new WhatsAppOutboundMedia { Id = handle, Caption = caption, Filename = req.Filename }, key);
+        return (handle, null, key);
+    }
+
+    private static WhatsAppTemplateParameter HeaderParam(string mediaType, string? id, string? link)
+    {
+        var media = new WhatsAppTemplateMedia { Id = id, Link = link };
+        return mediaType == "video"
+            ? new WhatsAppTemplateParameter { Type = "video", Video = media }
+            : new WhatsAppTemplateParameter { Type = "image", Image = media };
     }
 
     private static WhatsAppMessage BuildMediaMessage(string mediaType, string to, string id, WhatsAppOutboundMedia body) =>

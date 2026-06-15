@@ -10,18 +10,19 @@ internal static class OutboundMessageFactory
     /// <c>biz_opaque_callback_data</c> so a later status update correlates back to it.
     /// </summary>
     public static WhatsAppTemplateMessage Template(
-        string to, string id, string name, string? languageCode, IReadOnlyList<string> bodyParams)
+        string to, string id, string name, string? languageCode, IReadOnlyList<string> bodyParams,
+        WhatsAppTemplateParameter? header = null)
     {
-        IReadOnlyList<WhatsAppTemplateComponent>? components = bodyParams.Count > 0
-            ? new[]
+        var parts = new List<WhatsAppTemplateComponent>();
+        if (header is not null)
+            parts.Add(new WhatsAppTemplateComponent { Type = "header", Parameters = new[] { header } });
+        if (bodyParams.Count > 0)
+            parts.Add(new WhatsAppTemplateComponent
             {
-                new WhatsAppTemplateComponent
-                {
-                    Type = "body",
-                    Parameters = bodyParams.Select(WhatsAppTemplateParameter.FromText).ToList(),
-                },
-            }
-            : null;
+                Type = "body",
+                Parameters = bodyParams.Select(WhatsAppTemplateParameter.FromText).ToList(),
+            });
+        IReadOnlyList<WhatsAppTemplateComponent>? components = parts.Count > 0 ? parts : null;
         return new WhatsAppTemplateMessage
         {
             To = to,

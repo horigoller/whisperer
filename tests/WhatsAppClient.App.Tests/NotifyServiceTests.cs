@@ -64,6 +64,27 @@ public class NotifyServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_TemplateWithMediaUrl_AddsImageHeaderAndRenders()
+    {
+        SeedContact();
+        var result = await Svc().SendAsync(new NotifyRequest("+17742625384",
+            Template: "home_snapshot", Params: new[] { "Garage door open" },
+            MediaUrl: "https://example.com/snap.jpg", MediaType: "image"));
+
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        var header = tmpl.Template.Components!.Single(c => c.Type == "header").Parameters.Single();
+        Assert.Equal("image", header.Type);
+        Assert.Equal("https://example.com/snap.jpg", header.Image!.Link);
+        Assert.Equal("Garage door open", tmpl.Template.Components!.Single(c => c.Type == "body").Parameters.Single().Text);
+        Assert.Equal("template", result.Kind);
+
+        var persisted = _repo.Messages["17742625384"][0];
+        Assert.Equal("image", persisted.Type);                 // stored as image so the console renders it
+        Assert.Equal("https://example.com/snap.jpg", persisted.MediaUrl);
+        Assert.Equal("home_snapshot", persisted.TemplateName);
+    }
+
+    [Fact]
     public async Task SendAsync_TemplateBlankParam_Throws()
     {
         SeedContact();
