@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (106 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (107 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 106 tests
+dotnet test                              # 107 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
@@ -135,12 +135,15 @@ a phone number — handy for home-automation alerts with text and a camera snaps
 - **Endpoint:** `POST /api/notify`
 - **Auth:** `X-Api-Key: <key>` header, matched against the `NotifyApiKey` stack parameter. Empty
   key disables the endpoint (503).
-- **Body** (JSON; `to` plus either `text` or media):
+- **Body** (JSON; `to` plus one of: `template`, `text`, or media):
 
   | field | notes |
   |---|---|
   | `to` | recipient phone, E.164 (e.g. `+15551234567`) — required |
-  | `text` | message text (used as the caption when media is present) |
+  | `template` | approved template name → **delivers outside the 24h window** |
+  | `params` | string array filling the template's body variables (`{{1}}`, `{{2}}`, …) |
+  | `languageCode` | template language (default `en_US`) |
+  | `text` | free-form message text (used as the caption when media is present) |
   | `mediaUrl` | public HTTPS URL to an image/video (Meta fetches it) |
   | `mediaBase64` | base64 media bytes (staged to S3, uploaded to WhatsApp; ≤16 MB decoded) — alternative to `mediaUrl` |
   | `mediaType` | `image` or `video` (required whenever media is present) |
@@ -148,14 +151,23 @@ a phone number — handy for home-automation alerts with text and a camera snaps
   | `filename` | optional, mostly for choosing the staged file extension |
 
 The recipient **must already be a contact** — add the number in the console first; unknown
-numbers return `404`. The send is persisted and shows up in that contact's console thread. Like
-all free-form sends, delivery requires the recipient's 24h window to be open — for self-alerts,
-message your WABA number once to open it.
+numbers return `404`. The send is persisted and shows up in that contact's console thread.
+
+**Free-form vs template:** `text`/media are free-form and only deliver while the recipient's 24h
+window is open (for self-alerts, message your WABA number once to open it). A `template` send uses
+an approved template and delivers **any time** — the right choice for unattended alerts. A
+ready-made `home_event` UTILITY template exists (body `… recorded a new event: {{1}} …`).
 
 ```bash
+# Free-form (in-window):
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
   -d '{"to":"+15551234567","text":"Garage door left open"}'
+
+# Template (window-proof):
+curl -X POST https://whisperer.e-goller.com/api/notify \
+  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
+  -d '{"to":"+15551234567","template":"home_event","params":["Garage door left open"]}'
 ```
 
 Home Assistant `rest_command` (text + an optional base64 camera snapshot):
