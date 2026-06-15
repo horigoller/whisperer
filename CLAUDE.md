@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 95 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 104 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (95 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (104 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →
@@ -215,7 +215,8 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
 - `Configuration/AppOptions` — binds the `"App"` section: `TableName`, `WebBucketName`,
   `SessionSecretArn`, `WabaId`, `BootstrapAdminUsername`/`Phone`, `LoginTemplateName`,
   `RealtimeEndpoint` (https `@connections` management URL), `RealtimeWsUrl` (wss URL for the
-  client).
+  client), `NotifyApiKey` (machine notify API key), `MediaBucketName` (S3 bucket for staging
+  outbound media).
 - `Persistence/DynamoAppRepository` (`IAppRepository`) — single-table `AppTable` design
   (PK/SK + a `GSI1` type-index + TTL). Holds users, contacts, conversations + windows, messages,
   auth challenges, login rate-limits (`RATE#`), and WebSocket connections (`CONN#`). Notable:
@@ -231,7 +232,10 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   `ConversationService` (`ReplyAsync` with 24h-window guard, `SendTemplateAsync`; both stamp
   `biz_opaque`, persist the outbound message, and publish a realtime event), `ContactService`,
   `UserService` (`AddAsync`/`UpdateAsync`/`DeleteAsync`; username is the identity and stays
-  fixed on update), `TemplateService` (`ListApprovedAsync`/`IsApprovedAsync`, ~60s cache).
+  fixed on update), `TemplateService` (`ListApprovedAsync`/`IsApprovedAsync`, ~60s cache),
+  `NotifyService` (machine-API send: text/image/video to a phone, auto-creates the contact,
+  persists + publishes; `IOutboundMediaStore`/`S3OutboundMediaStore` stage base64 media to the
+  MediaBucket for `UploadFromS3Async`).
 - `Realtime/RealtimePublisher` (`IRealtimePublisher`) — broadcasts a `RealtimeEvent`
   (`message`/`status`) to every stored connection via `IAmazonApiGatewayManagementApi`
   `PostToConnection`, pruning `GoneException` connections. **No-op when `RealtimeEndpoint` is
@@ -250,7 +254,17 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   sets a session cookie and returns `{ token, user, wsUrl }`), `conversations` (list, thread,
   incremental `?after=`, `reply`, `template`), `contacts`, `users` (list/add/**update**/delete,
   admin-gated; responses are projected to a stable shape with `role` as a lowercase string),
-  `templates`, `health`. `Security.cs` provides the `AuthFilter`/`AdminFilter` endpoint filters.
+  `templates`, `health`, and `notify` (machine API, below). `Security.cs` provides the
+  `AuthFilter`/`AdminFilter`/`ApiKeyFilter` endpoint filters.
+- `POST /api/notify` — machine-to-machine send for non-interactive clients (e.g. Home Assistant).
+  Gated by `ApiKeyFilter` (`X-Api-Key` vs `App.NotifyApiKey`, constant-time compare; 503 when the
+  key is unset). Body `{ to, text?, mediaUrl?|mediaBase64?, mediaType?(image|video), caption?,
+  filename? }`. Delegates to `NotifyService` (in App): normalizes the phone, auto-creates the
+  contact, sends text or an image/video (URL → `link`; base64 → stage to the MediaBucket via
+  `IOutboundMediaStore` then `IWhatsAppMediaService.UploadFromS3Async` → handle), stamps
+  `biz_opaque` for status correlation, persists the outbound message and publishes a realtime
+  event so it shows in the console. Free-form, so it only delivers inside the recipient's 24h
+  window. `NotifyApiKey` and `MediaBucketName` come from the `App` config section.
 - `StaticSite` serves the built SPA from the WebBucket (content-typed, including
   `.webmanifest`); a `MapFallback("/{**path}")` serves files and falls back to `index.html` for
   client-side routes (the parameterless `MapFallback` `{*path:nonfile}` would 404 file paths).

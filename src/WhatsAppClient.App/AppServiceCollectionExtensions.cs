@@ -1,4 +1,5 @@
 using Amazon.DynamoDBv2;
+using Amazon.S3;
 using Amazon.SecretsManager;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,16 +30,19 @@ public static class AppServiceCollectionExtensions
 
         services.TryAddAWSService<IAmazonDynamoDB>();
         services.TryAddAWSService<IAmazonSecretsManager>();
+        services.TryAddAWSService<IAmazonS3>();
 
         services.AddSingleton<IAppRepository, DynamoAppRepository>();
         services.AddSingleton<ISessionSecretProvider, SessionSecretProvider>();
         services.AddSingleton<ISessionTokenService, SessionTokenService>();
         services.AddSingleton<IRealtimePublisher, RealtimePublisher>();
+        services.AddSingleton<IOutboundMediaStore, S3OutboundMediaStore>();
 
         services.AddScoped<AuthService>();
         services.AddScoped<ConversationService>();
         services.AddScoped<ContactService>();
         services.AddScoped<UserService>();
+        services.AddScoped<NotifyService>();
         services.AddScoped<ITemplateService, TemplateService>();
 
         return services;

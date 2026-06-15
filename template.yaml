@@ -35,6 +35,13 @@ Parameters:
     Type: String
     Default: ""
     Description: ACM certificate ARN (us-east-1) for the custom domain. Required to attach the domain.
+  NotifyApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: >
+      Shared secret for the machine notify API (POST /api/notify, X-Api-Key header), e.g. used by
+      Home Assistant. Empty disables the endpoint.
 
 Conditions:
   HasWhispererDomain: !And
@@ -301,6 +308,8 @@ Resources:
           App__BootstrapAdminPhone: !Ref BootstrapAdminPhone
           App__RealtimeEndpoint: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/wss"
           App__RealtimeWsUrl: !Sub "wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/wss"
+          App__NotifyApiKey: !Ref NotifyApiKey
+          App__MediaBucketName: !Ref MediaBucket
       FunctionUrlConfig:
         AuthType: NONE
       Policies:
@@ -308,12 +317,15 @@ Resources:
             TableName: !Ref AppTable
         - S3ReadPolicy:
             BucketName: !Ref WebBucket
+        - S3CrudPolicy:
+            BucketName: !Ref MediaBucket
         - AWSSecretsManagerGetSecretValuePolicy:
             SecretArn: !Ref AppSessionSecret
         - Statement:
             - Effect: Allow
               Action:
                 - social-messaging:SendWhatsAppMessage
+                - social-messaging:PostWhatsAppMessageMedia
                 - social-messaging:ListWhatsAppMessageTemplates
                 - social-messaging:GetWhatsAppMessageTemplate
               Resource: '*'

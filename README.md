@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (95 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (104 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 95 tests
+dotnet test                              # 104 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
@@ -127,13 +127,61 @@ Login codes are delivered via the approved **AUTHENTICATION** template named by
 approval-gated: until that template is `APPROVED`, the console falls back to a free-form code
 (in-window only) automatically, with no redeploy needed once it clears review.
 
+## Notify API (machine clients, e.g. Home Assistant)
+
+A keyed endpoint lets a non-interactive client (like Home Assistant) send a WhatsApp message to
+a phone number — handy for home-automation alerts with text and a camera snapshot or short clip.
+
+- **Endpoint:** `POST /api/notify`
+- **Auth:** `X-Api-Key: <key>` header, matched against the `NotifyApiKey` stack parameter. Empty
+  key disables the endpoint (503).
+- **Body** (JSON; `to` plus either `text` or media):
+
+  | field | notes |
+  |---|---|
+  | `to` | recipient phone, E.164 (e.g. `+15551234567`) — required |
+  | `text` | message text (used as the caption when media is present) |
+  | `mediaUrl` | public HTTPS URL to an image/video (Meta fetches it) |
+  | `mediaBase64` | base64 media bytes (staged to S3, uploaded to WhatsApp) — alternative to `mediaUrl` |
+  | `mediaType` | `image` or `video` (required with media) |
+  | `caption` | explicit caption (overrides `text` for the caption) |
+  | `filename` | optional, mostly for choosing the staged file extension |
+
+The send is persisted and shows up in the console thread for that contact (the contact is
+auto-created if new). Like all free-form sends, delivery requires the recipient's 24h window to
+be open — for self-alerts, message your WABA number once to open it.
+
+```bash
+curl -X POST https://whisperer.e-goller.com/api/notify \
+  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
+  -d '{"to":"+15551234567","text":"Garage door left open"}'
+```
+
+Home Assistant `rest_command` (text + an optional base64 camera snapshot):
+
+```yaml
+rest_command:
+  whatsapp_notify:
+    url: https://whisperer.e-goller.com/api/notify
+    method: POST
+    headers:
+      X-Api-Key: !secret whisperer_notify_key
+      content-type: application/json
+    payload: >-
+      {"to":"+15551234567","text":"{{ message }}"
+      {% if image_b64 is defined %}, "mediaBase64":"{{ image_b64 }}", "mediaType":"image"{% endif %} }
+```
+
+Pass `NotifyApiKey=...` at deploy time (`sam deploy ... --parameter-overrides NotifyApiKey=<secret>`).
+
 ## Configuration reference
 
 - `WhatsApp` section (all Lambdas): `OriginationPhoneNumberId`, `MetaApiVersion`.
 - `Receive` section (ReceiveLambda): `MessagesTableName`, `MediaBucketName`, `EventBusName`,
   and the `DownloadMedia`/`MarkAsRead`/`PublishEvents` toggles.
 - `App` section (Api/AppIngest): `TableName`, `WebBucketName`, `SessionSecretArn`, `WabaId`,
-  `BootstrapAdminUsername`/`Phone`, `LoginTemplateName`, `RealtimeEndpoint`, `RealtimeWsUrl`.
+  `BootstrapAdminUsername`/`Phone`, `LoginTemplateName`, `RealtimeEndpoint`, `RealtimeWsUrl`,
+  `NotifyApiKey`, `MediaBucketName`.
 
 `template.yaml` sets these from stack parameters/resources; for local runs override via
 environment variables (e.g. `WhatsApp__OriginationPhoneNumberId`, `App__TableName`).
