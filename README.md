@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (104 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (105 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 104 tests
+dotnet test                              # 105 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
@@ -147,9 +147,10 @@ a phone number — handy for home-automation alerts with text and a camera snaps
   | `caption` | explicit caption (overrides `text` for the caption) |
   | `filename` | optional, mostly for choosing the staged file extension |
 
-The send is persisted and shows up in the console thread for that contact (the contact is
-auto-created if new). Like all free-form sends, delivery requires the recipient's 24h window to
-be open — for self-alerts, message your WABA number once to open it.
+The recipient **must already be a contact** — add the number in the console first; unknown
+numbers return `404`. The send is persisted and shows up in that contact's console thread. Like
+all free-form sends, delivery requires the recipient's 24h window to be open — for self-alerts,
+message your WABA number once to open it.
 
 ```bash
 curl -X POST https://whisperer.e-goller.com/api/notify \

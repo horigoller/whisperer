@@ -55,7 +55,8 @@ public sealed class NotifyService
         if (!hasMedia && string.IsNullOrWhiteSpace(req.Text))
             throw new ArgumentException("Provide 'text' or media ('mediaUrl' or 'mediaBase64').");
 
-        await EnsureContactAsync(waId, phoneE164, ct);
+        // Only send to known contacts — add the number in the console first.
+        if (await _repo.GetContactAsync(waId, ct) is null) throw new ContactNotFoundException(waId);
 
         var id = Guid.NewGuid().ToString();
         WhatsAppMessage message;
@@ -118,13 +119,6 @@ public sealed class NotifyService
         mediaType == "video"
             ? new WhatsAppVideoMessage { To = to, BizOpaqueCallbackData = id, Video = body }
             : new WhatsAppImageMessage { To = to, BizOpaqueCallbackData = id, Image = body };
-
-    private async Task EnsureContactAsync(string waId, string phoneE164, CancellationToken ct)
-    {
-        if (await _repo.GetContactAsync(waId, ct) is not null) return;
-        var now = DateTime.UtcNow.ToString("o");
-        await _repo.PutContactAsync(new Contact { WaId = waId, PhoneE164 = phoneE164, Name = null, Source = "api", CreatedAt = now }, ct);
-    }
 
     private async Task PersistOutboundAsync(
         string id, string waId, string kind, string preview, string? awsId, string sentBy, CancellationToken ct)

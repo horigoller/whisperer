@@ -215,6 +215,10 @@ api.MapPost("/notify", async (NotifyRequest req, NotifyService svc) =>
         var r = await svc.SendAsync(req);
         return Results.Ok(new { ok = true, waId = r.WaId, messageId = r.MessageId, waMessageId = r.WaMessageId, kind = r.Kind });
     }
+    catch (ContactNotFoundException)
+    {
+        return Results.Json(new { ok = false, error = "contact not found; add it in the console first" }, statusCode: 404);
+    }
     catch (ArgumentException ex)
     {
         return Results.BadRequest(new { ok = false, error = ex.Message });
