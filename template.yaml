@@ -144,6 +144,13 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          # Staged outbound media is only needed until WhatsApp ingests it — expire after 30 days.
+          - Id: ExpireStagedOutboundMedia
+            Status: Enabled
+            Prefix: outgoing/
+            ExpirationInDays: 30
 
   WhatsAppEventBus:
     Type: AWS::Events::EventBus

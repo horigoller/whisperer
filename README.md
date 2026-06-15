@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (105 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (106 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 105 tests
+dotnet test                              # 106 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
@@ -142,8 +142,8 @@ a phone number — handy for home-automation alerts with text and a camera snaps
   | `to` | recipient phone, E.164 (e.g. `+15551234567`) — required |
   | `text` | message text (used as the caption when media is present) |
   | `mediaUrl` | public HTTPS URL to an image/video (Meta fetches it) |
-  | `mediaBase64` | base64 media bytes (staged to S3, uploaded to WhatsApp) — alternative to `mediaUrl` |
-  | `mediaType` | `image` or `video` (required with media) |
+  | `mediaBase64` | base64 media bytes (staged to S3, uploaded to WhatsApp; ≤16 MB decoded) — alternative to `mediaUrl` |
+  | `mediaType` | `image` or `video` (required whenever media is present) |
   | `caption` | explicit caption (overrides `text` for the caption) |
   | `filename` | optional, mostly for choosing the staged file extension |
 

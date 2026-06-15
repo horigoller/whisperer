@@ -87,6 +87,15 @@ public class NotifyServiceTests
         Assert.Equal("MEDIA_HANDLE", vid.Video.Id);
         Assert.Null(vid.Video.Link);
         Assert.Equal("Motion detected", vid.Video.Caption); // text used as caption when no explicit caption
+        Assert.Equal("Motion detected", _repo.Messages["17742625384"][0].Text); // console preview mirrors the caption
+    }
+
+    [Fact]
+    public async Task SendAsync_MediaWithoutMediaType_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", MediaUrl: "https://example.com/y.jpg")));
     }
 
     [Theory]

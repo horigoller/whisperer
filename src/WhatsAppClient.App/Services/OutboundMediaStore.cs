@@ -28,7 +28,7 @@ public sealed class S3OutboundMediaStore : IOutboundMediaStore
         if (string.IsNullOrEmpty(_options.MediaBucketName))
             throw new InvalidOperationException("MediaBucketName is not configured.");
 
-        var ext = Extension(mediaType, filename);
+        var (ext, contentType) = Detect(bytes, filename, mediaType);
         var key = $"outgoing/notify/{Guid.NewGuid():N}{ext}";
         using var stream = new MemoryStream(bytes);
         await _s3.PutObjectAsync(new PutObjectRequest
@@ -36,24 +36,39 @@ public sealed class S3OutboundMediaStore : IOutboundMediaStore
             BucketName = _options.MediaBucketName,
             Key = key,
             InputStream = stream,
-            ContentType = ContentType(mediaType, ext),
+            ContentType = contentType,
         }, ct);
         return (_options.MediaBucketName, key);
     }
 
-    private static string Extension(string mediaType, string? filename)
+    // Prefer the actual bytes (magic numbers), then the filename extension, then the media type,
+    // so the stored object's content type matches its content.
+    private static (string Ext, string ContentType) Detect(byte[] b, string? filename, string mediaType)
     {
-        if (!string.IsNullOrEmpty(filename) && Path.HasExtension(filename)) return Path.GetExtension(filename);
-        return mediaType.ToLowerInvariant() switch { "video" => ".mp4", _ => ".jpg" };
-    }
+        if (b.Length >= 12)
+        {
+            if (b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) return (".png", "image/png");
+            if (b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return (".jpg", "image/jpeg");
+            if (b[0] == 0x47 && b[1] == 0x49 && b[2] == 0x46) return (".gif", "image/gif");
+            if (b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
+                b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50) return (".webp", "image/webp");
+            if (b[4] == 0x66 && b[5] == 0x74 && b[6] == 0x79 && b[7] == 0x70) return (".mp4", "video/mp4"); // ...ftyp
+        }
 
-    private static string ContentType(string mediaType, string ext) => ext.ToLowerInvariant() switch
-    {
-        ".png" => "image/png",
-        ".gif" => "image/gif",
-        ".webp" => "image/webp",
-        ".mp4" => "video/mp4",
-        ".3gp" => "video/3gpp",
-        _ => mediaType.Equals("video", StringComparison.OrdinalIgnoreCase) ? "video/mp4" : "image/jpeg",
-    };
+        var fe = !string.IsNullOrEmpty(filename) && Path.HasExtension(filename)
+            ? Path.GetExtension(filename).ToLowerInvariant() : null;
+        return fe switch
+        {
+            ".png" => (".png", "image/png"),
+            ".gif" => (".gif", "image/gif"),
+            ".webp" => (".webp", "image/webp"),
+            ".jpg" or ".jpeg" => (fe, "image/jpeg"),
+            ".mp4" => (".mp4", "video/mp4"),
+            ".3gp" => (".3gp", "video/3gpp"),
+            ".mov" => (".mov", "video/quicktime"),
+            _ => mediaType.Equals("video", StringComparison.OrdinalIgnoreCase)
+                ? (".mp4", "video/mp4")
+                : (".jpg", "image/jpeg"),
+        };
+    }
 }
