@@ -119,6 +119,9 @@ button.primary { background: var(--accent-dark); color: #fff; border: none; bord
 .bubble.in { align-self: flex-start; background: var(--in); }
 .bubble.out { align-self: flex-end; background: var(--out); }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
+.bubble-media { display: flex; flex-direction: column; gap: 4px; }
+.media-img { max-width: 100%; width: 260px; max-height: 320px; object-fit: cover; border-radius: 6px; display: block; background: var(--border); }
+.media-doc { display: inline-flex; gap: 6px; align-items: center; color: var(--accent-dark); text-decoration: none; }
 .bubble-meta { font-size: 11px; color: var(--muted); text-align: right; margin-top: 2px; }
 .status.failed { color: #b00020; font-weight: 600; }
 .bubble-error { font-size: 11px; color: #b00020; margin-top: 3px; max-width: 320px; word-break: break-word; }

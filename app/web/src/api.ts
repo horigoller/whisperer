@@ -7,7 +7,7 @@ export interface Conversation {
 }
 export interface ChatMessage {
   waId: string; id: string; direction: "in" | "out"; type: string;
-  text: string | null; mediaId: string | null; status: string;
+  text: string | null; mediaId: string | null; mediaS3Key: string | null; mediaUrl: string | null; status: string;
   sentBy: string | null; templateName: string | null;
   errorCode: number | null; errorDetail: string | null; createdAt: string;
 }
@@ -54,6 +54,9 @@ export const api = {
 
   // conversations
   conversations: () => req<{ conversations: Conversation[] }>("/conversations"),
+  // Media is served by the API from S3; <img>/<video> can't send a Bearer header, so pass the token in the query.
+  mediaSrc: (waId: string, id: string) =>
+    `/api/conversations/${waId}/media/${id}?token=${encodeURIComponent(getToken() ?? "")}`,
   thread: (waId: string) => req<{ messages: ChatMessage[]; conversation: Conversation | null }>(`/conversations/${waId}/messages`),
   threadSince: (waId: string, after: string) =>
     req<{ messages: ChatMessage[] }>(`/conversations/${waId}/messages?after=${encodeURIComponent(after)}`),

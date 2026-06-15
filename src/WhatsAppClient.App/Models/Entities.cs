@@ -47,6 +47,9 @@ public sealed class ChatMessage
     public string? Text { get; set; }
     public string? MediaId { get; set; }
     public string? MediaS3Key { get; set; }
+
+    /// <summary>Public media URL for outbound sends made by link (not staged in S3); rendered directly.</summary>
+    public string? MediaUrl { get; set; }
     public string Status { get; set; } = "sent";
     public string? WaMessageId { get; set; }
     public string? SentBy { get; set; }

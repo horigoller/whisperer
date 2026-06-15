@@ -99,7 +99,7 @@ export function Conversation() {
       <div className="messages">
         {messages.map((m) => (
           <div key={m.id} className={`bubble ${m.direction}`}>
-            <div className="bubble-text">{m.text ?? (m.mediaId ? `[${m.type}]` : "—")}</div>
+            <MessageBody waId={waId} m={m} />
             <div className="bubble-meta">
               {clockTime(m.createdAt)}
               {m.direction === "out" && (
@@ -131,6 +131,26 @@ export function Conversation() {
       )}
 
       {showTemplate && <TemplateDialog waId={waId} onClose={() => setShowTemplate(false)} onSent={() => { setShowTemplate(false); load(); }} />}
+    </div>
+  );
+}
+
+function MessageBody({ waId, m }: { waId: string; m: ChatMessage }) {
+  const isMediaType = m.type === "image" || m.type === "video" || m.type === "document";
+  const isMedia = isMediaType && (!!m.mediaS3Key || !!m.mediaUrl);
+  if (!isMedia) {
+    return <div className="bubble-text">{m.text ?? (m.mediaId ? `[${m.type}]` : "—")}</div>;
+  }
+  // Prefer a directly-renderable public URL (link sends); otherwise stream from our S3 endpoint.
+  const src = m.mediaUrl ?? api.mediaSrc(waId, m.id);
+  // Text holds the caption unless it's exactly the media placeholder we store (e.g. "[image]").
+  const caption = m.text && m.text !== `[${m.type}]` ? m.text : null;
+  return (
+    <div className="bubble-media">
+      {m.type === "image" && <a href={src} target="_blank" rel="noreferrer"><img className="media-img" src={src} alt={caption ?? "image"} loading="lazy" /></a>}
+      {m.type === "video" && <video className="media-img" src={src} controls preload="metadata" />}
+      {m.type === "document" && <a className="media-doc" href={src} target="_blank" rel="noreferrer">📄 {caption ?? "document"}</a>}
+      {caption && m.type !== "document" && <div className="bubble-text">{caption}</div>}
     </div>
   );
 }
