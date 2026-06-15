@@ -91,7 +91,8 @@ public sealed class NotifyService
                 mediaS3Key = s3Key;
                 mediaUrl = link;
                 persistType = mt;     // store as image/video so the console renders the header media
-                preview = bodyParams.Count > 0 ? string.Join(" ", bodyParams) : $"[{req.Template}]";
+                // No-params fallback uses the media placeholder so the console suppresses it as a caption.
+                preview = bodyParams.Count > 0 ? string.Join(" ", bodyParams) : $"[{mt}]";
             }
             else
             {
