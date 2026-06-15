@@ -87,7 +87,9 @@ public class NotifyServiceTests
         Assert.Equal("MEDIA_HANDLE", vid.Video.Id);
         Assert.Null(vid.Video.Link);
         Assert.Equal("Motion detected", vid.Video.Caption); // text used as caption when no explicit caption
-        Assert.Equal("Motion detected", _repo.Messages["17742625384"][0].Text); // console preview mirrors the caption
+        var persisted = _repo.Messages["17742625384"][0];
+        Assert.Equal("Motion detected", persisted.Text);                  // console preview mirrors the caption
+        Assert.Equal("outgoing/notify/abc.mp4", persisted.MediaS3Key);    // staged key kept so the console can render it
     }
 
     [Fact]

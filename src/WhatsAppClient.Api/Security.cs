@@ -59,6 +59,9 @@ public static class Security
     {
         var header = http.Request.Headers.Authorization.ToString();
         if (header.StartsWith("Bearer ", StringComparison.Ordinal)) return header["Bearer ".Length..];
-        return http.Request.Cookies.TryGetValue("session", out var c) ? c : null;
+        if (http.Request.Cookies.TryGetValue("session", out var c)) return c;
+        // Lets <img>/<video src> authenticate (they can't send a Bearer header), like the WS handshake.
+        var q = http.Request.Query["token"].ToString();
+        return string.IsNullOrEmpty(q) ? null : q;
     }
 }

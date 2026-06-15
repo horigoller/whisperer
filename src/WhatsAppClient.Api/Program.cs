@@ -97,6 +97,32 @@ convos.MapGet("/{waId}/messages", async (string waId, ConversationService svc, H
     return Results.Ok(new { messages, conversation });
 });
 
+// Streams a message's media from the MediaBucket so the SPA can render images/videos inline.
+// Looking the message up first scopes the S3 read to media that belongs to this thread.
+convos.MapGet("/{waId}/media/{id}", async (
+    string waId, string id, ConversationService svc, IAmazonS3 s3, IOptions<AppOptions> appOptions, HttpContext http) =>
+{
+    var bucket = appOptions.Value.MediaBucketName;
+    var msg = await svc.GetMessageAsync(waId, id);
+    if (string.IsNullOrEmpty(bucket) || msg?.MediaS3Key is not { Length: > 0 } key)
+        return Results.NotFound();
+    try
+    {
+        using var obj = await s3.GetObjectAsync(bucket, key, http.RequestAborted);
+        var ms = new MemoryStream();
+        await obj.ResponseStream.CopyToAsync(ms, http.RequestAborted);
+        ms.Position = 0;
+        // Media for a given message id never changes — let the browser cache it.
+        http.Response.Headers.CacheControl = "private, max-age=86400";
+        var type = string.IsNullOrEmpty(obj.Headers.ContentType) ? "application/octet-stream" : obj.Headers.ContentType;
+        return Results.File(ms, type);
+    }
+    catch (AmazonS3Exception)
+    {
+        return Results.NotFound();
+    }
+});
+
 convos.MapPost("/{waId}/reply", async (string waId, ReplyRequest req, ConversationService svc, HttpContext http) =>
 {
     if (string.IsNullOrWhiteSpace(req.Text)) return Results.BadRequest(new { error = "text required" });
