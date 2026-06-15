@@ -54,7 +54,7 @@ app/
   web/                             React + TypeScript + Vite SPA (the console)
   deploy-web.sh                    Build + sync the SPA to the WebBucket
 template.yaml                      SAM stack (all of the above + SNS/SQS/DLQ/DynamoDB/S3/EventBridge/APIs)
-tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (108 tests)
+tests/                            Six test projects: Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (109 tests)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
@@ -78,7 +78,7 @@ See [CLAUDE.md](CLAUDE.md) for a per-project deep dive.
 
 ```bash
 dotnet build
-dotnet test                              # 108 tests
+dotnet test                              # 109 tests
 npm --prefix app/web ci && npm --prefix app/web run build   # build the console
 ```
 
@@ -158,16 +158,27 @@ window is open (for self-alerts, message your WABA number once to open it). A `t
 an approved template and delivers **any time** — the right choice for unattended alerts. A
 ready-made `home_event` UTILITY template exists (body `… recorded a new event: {{1}} …`).
 
+**Media in a template (window-proof images):** add `mediaUrl`/`mediaBase64` + `mediaType` to a
+`template` send and it fills the template's **media header**. The template must be created *with*
+a matching image/video header — image-header templates can't be created via the AWS API (Meta
+needs a resumable-upload handle), so create them in **WhatsApp Manager** (e.g. a `home_snapshot`
+with an image header).
+
 ```bash
 # Free-form (in-window):
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
   -d '{"to":"+15551234567","text":"Garage door left open"}'
 
-# Template (window-proof):
+# Template (window-proof text):
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
   -d '{"to":"+15551234567","template":"home_event","params":["Garage door left open"]}'
+
+# Template with an image header (window-proof image alert):
+curl -X POST https://whisperer.e-goller.com/api/notify \
+  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
+  -d '{"to":"+15551234567","template":"home_snapshot","params":["Garage door open"],"mediaUrl":"https://…/snap.jpg","mediaType":"image"}'
 ```
 
 Home Assistant `rest_command` (text + an optional base64 camera snapshot):

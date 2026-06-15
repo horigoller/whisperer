@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 108 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 109 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (108 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (109 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →
@@ -263,10 +263,13 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   the phone, requires an existing contact (`ContactNotFoundException` → 404; add the number in the
   console first), then sends a `template` (window-proof; e.g. the `home_event` UTILITY template),
   text, or an image/video (URL → `link`; base64 → stage to the MediaBucket via
-  `IOutboundMediaStore` then `IWhatsAppMediaService.UploadFromS3Async` → handle), stamps
-  `biz_opaque` for status correlation, persists the outbound message and publishes a realtime
-  event so it shows in the console. Free-form, so it only delivers inside the recipient's 24h
-  window. `NotifyApiKey` and `MediaBucketName` come from the `App` config section.
+  `IOutboundMediaStore` then `IWhatsAppMediaService.UploadFromS3Async` → handle). Media is resolved
+  by `ResolveMediaAsync` and shared by both paths; a `template`+media send attaches it as the
+  template's **media header** (`OutboundMessageFactory.Template` header param) and persists the
+  message as the media type so the console renders it. All sends stamp `biz_opaque` for status
+  correlation, persist the outbound message, and publish a realtime event. Text/media are free-form
+  (in-window only); templates deliver any time. `NotifyApiKey` and `MediaBucketName` come from the
+  `App` config section.
 - `StaticSite` serves the built SPA from the WebBucket (content-typed, including
   `.webmanifest`); a `MapFallback("/{**path}")` serves files and falls back to `index.html` for
   client-side routes (the parameterless `MapFallback` `{*path:nonfile}` would 404 file paths).
