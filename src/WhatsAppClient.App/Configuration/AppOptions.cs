@@ -45,4 +45,13 @@ public sealed class AppOptions
 
     /// <summary>The wss:// URL the browser connects to, handed to the client after login.</summary>
     public string RealtimeWsUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Shared secret for the machine notify API (<c>POST /api/notify</c>), sent by clients as the
+    /// <c>X-Api-Key</c> header. Empty disables the endpoint (returns 503).
+    /// </summary>
+    public string NotifyApiKey { get; set; } = string.Empty;
+
+    /// <summary>S3 bucket used to stage outbound media before uploading it to WhatsApp.</summary>
+    public string MediaBucketName { get; set; } = string.Empty;
 }

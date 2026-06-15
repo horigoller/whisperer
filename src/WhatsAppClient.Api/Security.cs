@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Options;
 using WhatsAppClient.App.Auth;
+using WhatsAppClient.App.Configuration;
 using WhatsAppClient.App.Models;
 
 namespace WhatsAppClient.Api;
@@ -31,6 +33,25 @@ public static class Security
     {
         if (ctx.HttpContext.CurrentUser().Role != UserRole.Admin)
             return Results.Json(new { error = "forbidden" }, statusCode: 403);
+        return await next(ctx);
+    }
+
+    /// <summary>Endpoint filter for the machine notify API: requires the configured X-Api-Key.</summary>
+    public static async ValueTask<object?> ApiKeyFilter(
+        EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
+    {
+        var http = ctx.HttpContext;
+        var configured = http.RequestServices.GetRequiredService<IOptions<AppOptions>>().Value.NotifyApiKey;
+        if (string.IsNullOrEmpty(configured))
+            return Results.Json(new { error = "notify api disabled" }, statusCode: 503);
+
+        var provided = http.Request.Headers["X-Api-Key"].ToString();
+        // Length-aware constant-time compare to avoid leaking the key via timing.
+        if (provided.Length != configured.Length ||
+            !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(provided), System.Text.Encoding.UTF8.GetBytes(configured)))
+            return Results.Json(new { error = "unauthenticated" }, statusCode: 401);
+
         return await next(ctx);
     }
 

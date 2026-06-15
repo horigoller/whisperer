@@ -206,6 +206,29 @@ users.MapDelete("/{username}", async (string username, UserService svc, HttpCont
 api.MapGet("/templates", async (ITemplateService svc) => Results.Ok(new { templates = await svc.ListApprovedAsync() }))
     .AddEndpointFilter(Security.AuthFilter);
 
+// ---- Machine notify API (X-Api-Key, e.g. Home Assistant) -------------------
+// POST /api/notify { to, text?, mediaUrl?|mediaBase64?, mediaType?, caption?, filename? }
+api.MapPost("/notify", async (NotifyRequest req, NotifyService svc) =>
+{
+    try
+    {
+        var r = await svc.SendAsync(req);
+        return Results.Ok(new { ok = true, waId = r.WaId, messageId = r.MessageId, waMessageId = r.WaMessageId, kind = r.Kind });
+    }
+    catch (ContactNotFoundException)
+    {
+        return Results.Json(new { ok = false, error = "contact not found; add it in the console first" }, statusCode: 404);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { ok = false, error = ex.Message });
+    }
+    catch (WhatsAppClient.Core.Exceptions.WhatsAppMessageException ex)
+    {
+        return Results.Json(new { ok = false, error = ex.Message }, statusCode: 502);
+    }
+}).AddEndpointFilter(Security.ApiKeyFilter);
+
 api.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 // Unmatched /api routes are JSON 404s, never the SPA.
