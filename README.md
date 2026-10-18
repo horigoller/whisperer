@@ -17,6 +17,9 @@ webhook.
   conversations, contact + system-user management, and **real-time updates over a WebSocket
   API** (no polling). Served as a React SPA from S3 by an ASP.NET Core Lambda, optionally on a
   custom domain.
+- **Notify API:** a keyed HTTP endpoint (`POST /api/notify`) for non-interactive clients like
+  **Home Assistant** to send text, media, or template alerts to a WhatsApp number — see
+  [Notify API](#notify-api-machine-clients-eg-home-assistant).
 
 ## Architecture
 
@@ -181,22 +184,155 @@ curl -X POST https://whisperer.e-goller.com/api/notify \
   -d '{"to":"+15551234567","template":"home_snapshot","params":["Garage door open"],"mediaUrl":"https://…/snap.jpg","mediaType":"image"}'
 ```
 
-Home Assistant `rest_command` (text + an optional base64 camera snapshot):
+Pass `NotifyApiKey=...` at deploy time (`sam deploy ... --parameter-overrides NotifyApiKey=<secret>`).
+
+### Home Assistant integration
+
+Put the key + recipient in `secrets.yaml`:
+
+```yaml
+whisperer_notify_key: "YOUR_NOTIFY_API_KEY"   # the NotifyApiKey the stack was deployed with
+whisperer_to: "+15551234567"                  # recipient (must be a saved Whisperer contact)
+```
+
+Add one `rest_command` per mode in `configuration.yaml` (the `| to_json` filter quotes/escapes
+each value so messages with quotes or newlines can't break the JSON):
 
 ```yaml
 rest_command:
-  whatsapp_notify:
+  # Free-form text — delivers only inside the recipient's 24h window.
+  whatsapp_text:
     url: https://whisperer.e-goller.com/api/notify
     method: POST
-    headers:
-      X-Api-Key: !secret whisperer_notify_key
-      content-type: application/json
+    content_type: "application/json"
+    headers: { X-Api-Key: !secret whisperer_notify_key }
+    payload: '{"to": {{ to | to_json }}, "text": {{ message | to_json }}}'
+
+  # Window-proof text alert via an approved template ({{1}} = message).
+  whatsapp_event:
+    url: https://whisperer.e-goller.com/api/notify
+    method: POST
+    content_type: "application/json"
+    headers: { X-Api-Key: !secret whisperer_notify_key }
+    payload: '{"to": {{ to | to_json }}, "template": "home_event", "params": [{{ message | to_json }}]}'
+
+  # Window-proof image alert via an image-header template + a public image URL.
+  whatsapp_snapshot:
+    url: https://whisperer.e-goller.com/api/notify
+    method: POST
+    content_type: "application/json"
+    headers: { X-Api-Key: !secret whisperer_notify_key }
     payload: >-
-      {"to":"+15551234567","text":"{{ message }}"
-      {% if image_b64 is defined %}, "mediaBase64":"{{ image_b64 }}", "mediaType":"image"{% endif %} }
+      {"to": {{ to | to_json }}, "template": "home_snapshot", "params": [{{ message | to_json }}],
+       "mediaUrl": {{ image_url | to_json }}, "mediaType": "image"}
 ```
 
-Pass `NotifyApiKey=...` at deploy time (`sam deploy ... --parameter-overrides NotifyApiKey=<secret>`).
+A unified `script.whatsapp` picks the right mode automatically — call this everywhere:
+
+```yaml
+script:
+  whatsapp:
+    fields:
+      message:      { description: "Alert text", required: true }
+      image_url:    { description: "Public image URL (optional → image alert)" }
+      window_proof: { description: "Use a template so it delivers outside 24h", default: true }
+      to:           { description: "Recipient (E.164)", default: !secret whisperer_to }
+    sequence:
+      - choose:
+          - conditions: "{{ image_url is defined and image_url }}"
+            sequence:
+              - service: rest_command.whatsapp_snapshot
+                data: { to: "{{ to }}", message: "{{ message }}", image_url: "{{ image_url }}" }
+          - conditions: "{{ window_proof }}"
+            sequence:
+              - service: rest_command.whatsapp_event
+                data: { to: "{{ to }}", message: "{{ message }}" }
+        default:
+          - service: rest_command.whatsapp_text
+            data: { to: "{{ to }}", message: "{{ message }}" }
+```
+
+Use it from automations:
+
+```yaml
+automation:
+  - alias: WhatsApp - garage door left open
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.garage_door
+        to: "on"
+        for: "00:05:00"
+    action:
+      - service: script.whatsapp
+        data: { message: "Garage door has been open for 5 minutes" }
+
+  - alias: WhatsApp - front door motion snapshot
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.front_door_motion
+        to: "on"
+    action:
+      - service: camera.snapshot
+        target: { entity_id: camera.front_door }
+        data: { filename: "/config/www/front_door.jpg" }
+      - delay: "00:00:02"
+      - service: script.whatsapp
+        data:
+          message: "Motion at the front door"
+          image_url: "https://YOUR_PUBLIC_HA/local/front_door.jpg"
+```
+
+**Local images without a public URL (base64).** `mediaUrl` needs a URL Meta can fetch; for a
+local-only snapshot or clip use `mediaBase64`. HA can't base64 a file inline, so call a helper via
+`shell_command`. Store the key in `/config/.whisperer_notify_key` (chmod 600) and add
+`/config/scripts/whatsapp.py`:
+
+```python
+#!/usr/bin/env python3
+import base64, json, os, sys, urllib.request
+to      = sys.argv[1]
+msg_b64 = sys.argv[2] if len(sys.argv) > 2 else ""   # message, base64'd by HA (quote-safe)
+path    = sys.argv[3] if len(sys.argv) > 3 else ""   # media file to attach (optional)
+mtype   = sys.argv[4] if len(sys.argv) > 4 else "image"
+template = sys.argv[5] if len(sys.argv) > 5 else ""  # "" = free-form (in-window)
+message = base64.b64decode(msg_b64).decode() if msg_b64 else ""
+key = os.environ.get("WHISPERER_KEY") or open("/config/.whisperer_notify_key").read().strip()
+payload = {"to": to}
+if path:
+    with open(path, "rb") as f:
+        payload["mediaBase64"] = base64.b64encode(f.read()).decode()
+    payload["mediaType"] = mtype
+if template:
+    payload["template"] = template
+    if message:
+        payload["params"] = [message]
+elif message:
+    payload["text"] = message
+req = urllib.request.Request("https://whisperer.e-goller.com/api/notify",
+    data=json.dumps(payload).encode(), method="POST",
+    headers={"Content-Type": "application/json", "X-Api-Key": key})
+with urllib.request.urlopen(req, timeout=30) as r:
+    print(r.status, r.read().decode())
+```
+
+```yaml
+shell_command:
+  whatsapp_media_b64: >-
+    python3 /config/scripts/whatsapp.py
+    "{{ to }}" "{{ message | base64_encode }}" "{{ filename }}"
+    "{{ media_type | default('image') }}" "{{ template | default('') }}"
+```
+
+Call it after `camera.snapshot` / `camera.record`, passing `filename`, `media_type`
+(`image`/`video`), and `template` (an image/video-header template for window-proof delivery, or
+`""` for free-form in-window).
+
+**Caveats**
+- The recipient must be a **saved contact** in the console (unknown numbers → `404`).
+- `text`/media are **in-window only**; use a `template` for unattended/window-proof alerts — and
+  the template must be **APPROVED** first (a send to an unapproved template name returns
+  `ok: true` but doesn't deliver).
+- Media must be ≤16 MB (base64) and `mediaType` is required whenever media is present.
 
 ## Configuration reference
 
