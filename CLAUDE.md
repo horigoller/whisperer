@@ -91,7 +91,7 @@ aws socialmessaging create-whatsapp-message-template --id <waba-id> \
 ### Login template (console auth)
 
 The console delivers login codes via the approved **AUTHENTICATION** template named by
-`App.LoginTemplateName` (currently `verify_code_1`), which works even outside the recipient's
+`App.LoginTemplateName` (currently `verify_otp_usecase`), which works even outside the recipient's
 24h window. Delivery is **approval-gated**: `AuthService` only uses the template when
 `ITemplateService.IsApprovedAsync` confirms it's `APPROVED`, otherwise it falls back to a
 free-form text code (which only delivers in-window). So a not-yet-approved template never
