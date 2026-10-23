@@ -35,7 +35,7 @@ public sealed class AppOptions
     public string BootstrapAdminPhone { get; set; } = string.Empty;
 
     /// <summary>AUTHENTICATION template used to deliver login codes outside the 24h window.</summary>
-    public string LoginTemplateName { get; set; } = "verify_code_1";
+    public string LoginTemplateName { get; set; } = "verify_otp_usecase";
 
     /// <summary>
     /// HTTPS management endpoint of the WebSocket API (https://{id}.execute-api.{region}.amazonaws.com/{stage})
