@@ -184,7 +184,7 @@ curl -X POST https://whisperer.e-goller.com/api/notify \
 # Template with an image header (window-proof image alert):
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
-  -d '{"to":"+15551234567","template":"home_snapshot","params":["Garage door open"],"mediaUrl":"https://…/snap.jpg","mediaType":"image"}'
+  -d '{"to":"+15551234567","template":"home_snapshot","params":["Wayland","Garage door open"],"mediaUrl":"https://…/snap.jpg","mediaType":"image"}'
 ```
 
 Pass `NotifyApiKey=...` at deploy time (`sam deploy ... --parameter-overrides NotifyApiKey=<secret>`).
@@ -224,14 +224,16 @@ rest_command:
        "headerText": {{ home | to_json }},
        "params": [{{ home | to_json }}, {{ message | to_json }}]}
 
-  # Window-proof image alert via an image-header template + a public image URL.
+  # Window-proof image alert via the home_snapshot template (image header + a public image URL).
+  #   body {{1}} = home name, {{2}} = the events.
   whatsapp_snapshot:
     url: https://whisperer.e-goller.com/api/notify
     method: POST
     content_type: "application/json"
     headers: { X-Api-Key: !secret whisperer_notify_key }
     payload: >-
-      {"to": {{ to | to_json }}, "template": "home_snapshot", "params": [{{ message | to_json }}],
+      {"to": {{ to | to_json }}, "template": "home_snapshot",
+       "params": [{{ home | to_json }}, {{ message | to_json }}],
        "mediaUrl": {{ image_url | to_json }}, "mediaType": "image"}
 ```
 
@@ -242,7 +244,7 @@ script:
   whatsapp:
     fields:
       message:      { description: "Alert text / events", required: true }
-      home:         { description: "This HA instance's name (home_event {{1}})", default: !secret whisperer_home }
+      home:         { description: "This HA instance's name (home_event/home_snapshot {{1}})", default: !secret whisperer_home }
       image_url:    { description: "Public image URL (optional → image alert)" }
       window_proof: { description: "Use a template so it delivers outside 24h", default: true }
       to:           { description: "Recipient (E.164)", default: !secret whisperer_to }
@@ -251,7 +253,7 @@ script:
           - conditions: "{{ image_url is defined and image_url }}"
             sequence:
               - service: rest_command.whatsapp_snapshot
-                data: { to: "{{ to }}", message: "{{ message }}", image_url: "{{ image_url }}" }
+                data: { to: "{{ to }}", home: "{{ home }}", message: "{{ message }}", image_url: "{{ image_url }}" }
           - conditions: "{{ window_proof }}"
             sequence:
               - service: rest_command.whatsapp_event
