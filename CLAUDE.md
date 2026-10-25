@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 109 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 110 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (109 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (110 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →
@@ -258,15 +258,17 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   `AuthFilter`/`AdminFilter`/`ApiKeyFilter` endpoint filters.
 - `POST /api/notify` — machine-to-machine send for non-interactive clients (e.g. Home Assistant).
   Gated by `ApiKeyFilter` (`X-Api-Key` vs `App.NotifyApiKey`, constant-time compare; 503 when the
-  key is unset). Body `{ to, template?, params?, languageCode?, text?, mediaUrl?|mediaBase64?,
-  mediaType?(image|video), caption?, filename? }`. Delegates to `NotifyService` (in App): normalizes
+  key is unset). Body `{ to, template?, params?, headerText?, languageCode?, text?,
+  mediaUrl?|mediaBase64?, mediaType?(image|video), caption?, filename? }`. Delegates to
+  `NotifyService` (in App): normalizes
   the phone, requires an existing contact (`ContactNotFoundException` → 404; add the number in the
   console first), then sends a `template` (window-proof; e.g. the `home_event` UTILITY template),
   text, or an image/video (URL → `link`; base64 → stage to the MediaBucket via
   `IOutboundMediaStore` then `IWhatsAppMediaService.UploadFromS3Async` → handle). Media is resolved
   by `ResolveMediaAsync` and shared by both paths; a `template`+media send attaches it as the
   template's **media header** (`OutboundMessageFactory.Template` header param) and persists the
-  message as the media type so the console renders it. All sends stamp `biz_opaque` for status
+  message as the media type so the console renders it, while `headerText` fills a template's
+  **text header** variable (e.g. `home_event`'s `{{1}} Event`). All sends stamp `biz_opaque` for status
   correlation, persist the outbound message, and publish a realtime event. Text/media are free-form
   (in-window only); templates deliver any time. `NotifyApiKey` and `MediaBucketName` come from the
   `App` config section.

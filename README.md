@@ -145,6 +145,7 @@ a phone number — handy for home-automation alerts with text and a camera snaps
   | `to` | recipient phone, E.164 (e.g. `+15551234567`) — required |
   | `template` | approved template name → **delivers outside the 24h window** |
   | `params` | string array filling the template's body variables (`{{1}}`, `{{2}}`, …) |
+  | `headerText` | value for a template's **text header** variable (`{{1}}` in the header) |
   | `languageCode` | template language (default `en_US`) |
   | `text` | free-form message text (used as the caption when media is present) |
   | `mediaUrl` | public HTTPS URL to an image/video (Meta fetches it) |
@@ -159,7 +160,9 @@ numbers return `404`. The send is persisted and shows up in that contact's conso
 **Free-form vs template:** `text`/media are free-form and only deliver while the recipient's 24h
 window is open (for self-alerts, message your WABA number once to open it). A `template` send uses
 an approved template and delivers **any time** — the right choice for unattended alerts. A
-ready-made `home_event` UTILITY template exists (body `… recorded a new event: {{1}} …`).
+ready-made `home_event` UTILITY template exists: a text header `{{1}} Event` and body
+`Home Assistant in {{1}} reported the following events: {{2}}. …`, so a send passes
+`headerText` = the home/instance name and `params` = `[home, events]`.
 
 **Media in a template (window-proof images):** add `mediaUrl`/`mediaBase64` + `mediaType` to a
 `template` send and it fills the template's **media header**. The template must be created *with*
@@ -173,10 +176,10 @@ curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
   -d '{"to":"+15551234567","text":"Garage door left open"}'
 
-# Template (window-proof text):
+# Template (window-proof text) — home_event: headerText = home name, params = [home, events]:
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
-  -d '{"to":"+15551234567","template":"home_event","params":["Garage door left open"]}'
+  -d '{"to":"+15551234567","template":"home_event","headerText":"Wayland","params":["Wayland","Garage door left open"]}'
 
 # Template with an image header (window-proof image alert):
 curl -X POST https://whisperer.e-goller.com/api/notify \
@@ -193,6 +196,7 @@ Put the key + recipient in `secrets.yaml`:
 ```yaml
 whisperer_notify_key: "YOUR_NOTIFY_API_KEY"   # the NotifyApiKey the stack was deployed with
 whisperer_to: "+15551234567"                  # recipient (must be a saved Whisperer contact)
+whisperer_home: "Wayland"                     # this HA instance's name (home_event {{1}}) — set per instance
 ```
 
 Add one `rest_command` per mode in `configuration.yaml` (the `| to_json` filter quotes/escapes
@@ -208,13 +212,17 @@ rest_command:
     headers: { X-Api-Key: !secret whisperer_notify_key }
     payload: '{"to": {{ to | to_json }}, "text": {{ message | to_json }}}'
 
-  # Window-proof text alert via an approved template ({{1}} = message).
+  # Window-proof text alert via the home_event template:
+  #   text header {{1}} = home name; body {{1}} = home name, {{2}} = the events.
   whatsapp_event:
     url: https://whisperer.e-goller.com/api/notify
     method: POST
     content_type: "application/json"
     headers: { X-Api-Key: !secret whisperer_notify_key }
-    payload: '{"to": {{ to | to_json }}, "template": "home_event", "params": [{{ message | to_json }}]}'
+    payload: >-
+      {"to": {{ to | to_json }}, "template": "home_event",
+       "headerText": {{ home | to_json }},
+       "params": [{{ home | to_json }}, {{ message | to_json }}]}
 
   # Window-proof image alert via an image-header template + a public image URL.
   whatsapp_snapshot:
@@ -233,7 +241,8 @@ A unified `script.whatsapp` picks the right mode automatically — call this eve
 script:
   whatsapp:
     fields:
-      message:      { description: "Alert text", required: true }
+      message:      { description: "Alert text / events", required: true }
+      home:         { description: "This HA instance's name (home_event {{1}})", default: !secret whisperer_home }
       image_url:    { description: "Public image URL (optional → image alert)" }
       window_proof: { description: "Use a template so it delivers outside 24h", default: true }
       to:           { description: "Recipient (E.164)", default: !secret whisperer_to }
@@ -246,7 +255,7 @@ script:
           - conditions: "{{ window_proof }}"
             sequence:
               - service: rest_command.whatsapp_event
-                data: { to: "{{ to }}", message: "{{ message }}" }
+                data: { to: "{{ to }}", home: "{{ home }}", message: "{{ message }}" }
         default:
           - service: rest_command.whatsapp_text
             data: { to: "{{ to }}", message: "{{ message }}" }
