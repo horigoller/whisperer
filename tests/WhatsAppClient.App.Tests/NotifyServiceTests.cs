@@ -85,6 +85,21 @@ public class NotifyServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_TemplateWithHeaderText_AddsTextHeader()
+    {
+        SeedContact();
+        await Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_event",
+            HeaderText: "Wayland", Params: new[] { "Wayland", "Garage door closed" }));
+
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        var header = tmpl.Template.Components!.Single(c => c.Type == "header").Parameters.Single();
+        Assert.Equal("text", header.Type);
+        Assert.Equal("Wayland", header.Text);
+        var body = tmpl.Template.Components!.Single(c => c.Type == "body").Parameters;
+        Assert.Equal(new[] { "Wayland", "Garage door closed" }, body.Select(p => p.Text));
+    }
+
+    [Fact]
     public async Task SendAsync_TemplateBlankParam_Throws()
     {
         SeedContact();

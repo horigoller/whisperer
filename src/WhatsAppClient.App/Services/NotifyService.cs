@@ -22,7 +22,8 @@ public sealed record NotifyRequest(
     string? Filename = null,
     string? Template = null,    // approved template name → window-proof
     string? LanguageCode = null,
-    IReadOnlyList<string>? Params = null);
+    IReadOnlyList<string>? Params = null,   // body variables ({{1}}, {{2}}, …)
+    string? HeaderText = null);             // text-header variable (templates with a {{1}} TEXT header)
 
 public sealed record NotifyResult(string WaId, string MessageId, string? WaMessageId, string Kind);
 
@@ -96,6 +97,9 @@ public sealed class NotifyService
             }
             else
             {
+                // Text-header templates (e.g. "{{1}} Event") take a single text header variable.
+                if (!string.IsNullOrWhiteSpace(req.HeaderText))
+                    header = WhatsAppTemplateParameter.FromText(req.HeaderText);
                 preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
             }
             message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams, header);
