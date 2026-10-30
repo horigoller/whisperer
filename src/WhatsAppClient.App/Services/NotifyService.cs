@@ -23,7 +23,8 @@ public sealed record NotifyRequest(
     string? Template = null,    // approved template name → window-proof
     string? LanguageCode = null,
     IReadOnlyList<string>? Params = null,   // body variables ({{1}}, {{2}}, …)
-    string? HeaderText = null);             // text-header variable (templates with a {{1}} TEXT header)
+    string? HeaderText = null,              // text-header variable (templates with a {{1}} TEXT header)
+    IReadOnlyList<string>? Snapshots = null); // base64 images → composed with the banner into the image header
 
 public sealed record NotifyResult(string WaId, string MessageId, string? WaMessageId, string Kind);
 
@@ -37,19 +38,22 @@ public sealed class NotifyService
     private readonly IWhatsAppMediaService _media;
     private readonly IOutboundMediaStore _mediaStore;
     private readonly IRealtimePublisher _realtime;
+    private readonly IAlertImageComposer _composer;
 
     public NotifyService(
         IAppRepository repo,
         IWhatsAppMessageService whatsapp,
         IWhatsAppMediaService media,
         IOutboundMediaStore mediaStore,
-        IRealtimePublisher realtime)
+        IRealtimePublisher realtime,
+        IAlertImageComposer composer)
     {
         _repo = repo;
         _whatsapp = whatsapp;
         _media = media;
         _mediaStore = mediaStore;
         _realtime = realtime;
+        _composer = composer;
     }
 
     /// <summary>Sends a text or media message to a phone number, persisting it so it shows in the console.</summary>
@@ -63,6 +67,8 @@ public sealed class NotifyService
         var hasMedia = !string.IsNullOrWhiteSpace(req.MediaUrl) || !string.IsNullOrWhiteSpace(req.MediaBase64);
         if (!hasTemplate && !hasMedia && string.IsNullOrWhiteSpace(req.Text))
             throw new ArgumentException("Provide 'template', 'text', or media ('mediaUrl' or 'mediaBase64').");
+        if (req.Snapshots is not null && !hasTemplate)
+            throw new ArgumentException("'snapshots' require a 'template' (e.g. home_snapshot).");
 
         // Only send to known contacts — add the number in the console first.
         if (await _repo.GetContactAsync(waId, ct) is null) throw new ContactNotFoundException(waId);
@@ -83,7 +89,18 @@ public sealed class NotifyService
             kind = "template";
 
             WhatsAppTemplateParameter? header = null;
-            if (hasMedia)
+            if (req.Snapshots is not null)
+            {
+                // Branded alert: the Whisperer banner (plus any camera snapshots) composed into one
+                // image header, then staged + uploaded like any other media header.
+                var jpeg = _composer.Compose(DecodeSnapshots(req.Snapshots));
+                var (bucket, key) = await _mediaStore.StageAsync(jpeg, "image", "alert.jpg", ct);
+                header = HeaderParam("image", await _media.UploadFromS3Async(bucket, key, ct), null);
+                mediaS3Key = key;
+                persistType = "image";   // store as image so the console renders the composed header
+                preview = bodyParams.Count > 0 ? string.Join(" ", bodyParams) : "[image]";
+            }
+            else if (hasMedia)
             {
                 // Attach media as the template's header (the template must have a matching media header).
                 var mt = NormalizeMediaType(req.MediaType);
@@ -136,6 +153,30 @@ public sealed class NotifyService
 
     private static string? FirstNonBlank(string? a, string? b) =>
         !string.IsNullOrWhiteSpace(a) ? a : (!string.IsNullOrWhiteSpace(b) ? b : null);
+
+    /// <summary>Max number of snapshots composited into one alert image.</summary>
+    private const int MaxSnapshots = 10;
+
+    /// <summary>Decodes the base64 snapshots, enforcing count/size limits; invalid base64 throws.</summary>
+    private static List<byte[]> DecodeSnapshots(IReadOnlyList<string> snapshots)
+    {
+        if (snapshots.Count > MaxSnapshots)
+            throw new ArgumentException($"at most {MaxSnapshots} snapshots are allowed.");
+        var result = new List<byte[]>(snapshots.Count);
+        foreach (var s in snapshots)
+        {
+            if (string.IsNullOrWhiteSpace(s))
+                throw new ArgumentException("snapshot entries must be non-empty base64.");
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(s); }
+            catch (FormatException) { throw new ArgumentException("a snapshot is not valid base64."); }
+            if (bytes.Length == 0) throw new ArgumentException("a snapshot is empty.");
+            if (bytes.Length > MaxMediaBytes)
+                throw new ArgumentException($"a snapshot exceeds the {MaxMediaBytes / (1024 * 1024)} MB limit.");
+            result.Add(bytes);
+        }
+        return result;
+    }
 
     private static string NormalizeMediaType(string? mediaType) =>
         (mediaType ?? "").Trim().ToLowerInvariant() switch

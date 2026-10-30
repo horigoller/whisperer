@@ -146,6 +146,7 @@ a phone number — handy for home-automation alerts with text and a camera snaps
   | `template` | approved template name → **delivers outside the 24h window** |
   | `params` | string array filling the template's body variables (`{{1}}`, `{{2}}`, …) |
   | `headerText` | value for a template's **text header** variable (`{{1}}` in the header) |
+  | `snapshots` | base64 image array composed with the Whisperer banner into the template's **image header** (banner on top, snapshots tiled below); `[]` = banner only. Requires a `template` with an image header (e.g. `home_snapshot`). ≤10 images, ≤16 MB each |
   | `languageCode` | template language (default `en_US`) |
   | `text` | free-form message text (used as the caption when media is present) |
   | `mediaUrl` | public HTTPS URL to an image/video (Meta fetches it) |
@@ -159,32 +160,35 @@ numbers return `404`. The send is persisted and shows up in that contact's conso
 
 **Free-form vs template:** `text`/media are free-form and only deliver while the recipient's 24h
 window is open (for self-alerts, message your WABA number once to open it). A `template` send uses
-an approved template and delivers **any time** — the right choice for unattended alerts. A
-ready-made `home_event` UTILITY template exists: a text header `{{1}} Event` and body
-`Home Assistant in {{1}} reported the following events: {{2}}. …`, so a send passes
-`headerText` = the home/instance name and `params` = `[home, events]`.
+an approved template and delivers **any time** — the right choice for unattended alerts.
 
-**Media in a template (window-proof images):** add `mediaUrl`/`mediaBase64` + `mediaType` to a
-`template` send and it fills the template's **media header**. The template must be created *with*
-a matching image/video header — image-header templates can't be created via the AWS API (Meta
-needs a resumable-upload handle), so create them in **WhatsApp Manager** (e.g. a `home_snapshot`
-with an image header).
+**`home_snapshot` is the default alert template** — a UTILITY template with an **image header** and
+body `Home Assistant in {{1}} reported the following events: {{2}}. …`. Pass `params` = `[home,
+events]` plus `snapshots` (base64 images). The server composes the **Whisperer banner on top with
+the snapshots tiled below** into the single image header, so *every* alert is branded:
+`snapshots: []` sends the banner alone (text-only alert), and `snapshots: [img, …]` adds up to 10
+camera captures beneath it (`AlertImageComposer`). A text-only `home_event` template (text header,
+no banner) is still available if you want an alert without the image header.
+
+> Image-header templates can't be created via the AWS API (Meta needs a resumable-upload handle),
+> so create them in **WhatsApp Manager**. `mediaUrl`/`mediaBase64` + `mediaType` still work to put a
+> single raw image/video in a template's media header (no banner) — `snapshots` is the branded path.
 
 ```bash
-# Free-form (in-window):
+# Default branded alert — banner only (text-only), window-proof:
+curl -X POST https://whisperer.e-goller.com/api/notify \
+  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
+  -d '{"to":"+15551234567","template":"home_snapshot","params":["Wayland","Garage door left open"],"snapshots":[]}'
+
+# Branded alert with camera snapshots (banner + tiled snapshots in the header):
+curl -X POST https://whisperer.e-goller.com/api/notify \
+  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
+  -d '{"to":"+15551234567","template":"home_snapshot","params":["Wayland","Motion at front door"],"snapshots":["<base64-jpg>","<base64-jpg>"]}'
+
+# Free-form text (in-window only, no banner):
 curl -X POST https://whisperer.e-goller.com/api/notify \
   -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
   -d '{"to":"+15551234567","text":"Garage door left open"}'
-
-# Template (window-proof text) — home_event: headerText = home name, params = [home, events]:
-curl -X POST https://whisperer.e-goller.com/api/notify \
-  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
-  -d '{"to":"+15551234567","template":"home_event","headerText":"Wayland","params":["Wayland","Garage door left open"]}'
-
-# Template with an image header (window-proof image alert):
-curl -X POST https://whisperer.e-goller.com/api/notify \
-  -H "X-Api-Key: $NOTIFY_API_KEY" -H "content-type: application/json" \
-  -d '{"to":"+15551234567","template":"home_snapshot","params":["Wayland","Garage door open"],"mediaUrl":"https://…/snap.jpg","mediaType":"image"}'
 ```
 
 Pass `NotifyApiKey=...` at deploy time (`sam deploy ... --parameter-overrides NotifyApiKey=<secret>`).
@@ -196,7 +200,7 @@ Put the key + recipient in `secrets.yaml`:
 ```yaml
 whisperer_notify_key: "YOUR_NOTIFY_API_KEY"   # the NotifyApiKey the stack was deployed with
 whisperer_to: "+15551234567"                  # recipient (must be a saved Whisperer contact)
-whisperer_home: "Wayland"                     # this HA instance's name (home_event {{1}}) — set per instance
+whisperer_home: "Wayland"                     # this HA instance's name (home_snapshot {{1}}) — set per instance
 ```
 
 Add one `rest_command` per mode in `configuration.yaml` (the `| to_json` filter quotes/escapes
@@ -212,21 +216,9 @@ rest_command:
     headers: { X-Api-Key: !secret whisperer_notify_key }
     payload: '{"to": {{ to | to_json }}, "text": {{ message | to_json }}}'
 
-  # Window-proof text alert via the home_event template:
-  #   text header {{1}} = home name; body {{1}} = home name, {{2}} = the events.
-  whatsapp_event:
-    url: https://whisperer.e-goller.com/api/notify
-    method: POST
-    content_type: "application/json"
-    headers: { X-Api-Key: !secret whisperer_notify_key }
-    payload: >-
-      {"to": {{ to | to_json }}, "template": "home_event",
-       "headerText": {{ home | to_json }},
-       "params": [{{ home | to_json }}, {{ message | to_json }}]}
-
-  # Window-proof image alert via the home_snapshot template (image header + a public image URL).
-  #   body {{1}} = home name, {{2}} = the events.
-  whatsapp_snapshot:
+  # Default window-proof alert — branded banner + text via the home_snapshot template.
+  #   body {{1}} = home name, {{2}} = the events; "snapshots": [] = banner only (no camera image).
+  whatsapp_alert:
     url: https://whisperer.e-goller.com/api/notify
     method: POST
     content_type: "application/json"
@@ -234,29 +226,28 @@ rest_command:
     payload: >-
       {"to": {{ to | to_json }}, "template": "home_snapshot",
        "params": [{{ home | to_json }}, {{ message | to_json }}],
-       "mediaUrl": {{ image_url | to_json }}, "mediaType": "image"}
+       "snapshots": []}
 ```
 
-A unified `script.whatsapp` picks the right mode automatically — call this everywhere:
+A unified `script.whatsapp` picks the right mode automatically — call this everywhere. The default
+is the branded `home_snapshot` alert (banner on top, text in the body); to include camera snapshots
+beneath the banner, use the base64 helper below (the snapshot files are read and composited
+server-side):
 
 ```yaml
 script:
   whatsapp:
     fields:
       message:      { description: "Alert text / events", required: true }
-      home:         { description: "This HA instance's name (home_event/home_snapshot {{1}})", default: !secret whisperer_home }
-      image_url:    { description: "Public image URL (optional → image alert)" }
-      window_proof: { description: "Use a template so it delivers outside 24h", default: true }
+      home:         { description: "This HA instance's name (home_snapshot {{1}})", default: !secret whisperer_home }
+      window_proof: { description: "Use a template so it delivers outside 24h (banner alert)", default: true }
       to:           { description: "Recipient (E.164)", default: !secret whisperer_to }
     sequence:
       - choose:
-          - conditions: "{{ image_url is defined and image_url }}"
-            sequence:
-              - service: rest_command.whatsapp_snapshot
-                data: { to: "{{ to }}", home: "{{ home }}", message: "{{ message }}", image_url: "{{ image_url }}" }
           - conditions: "{{ window_proof }}"
             sequence:
-              - service: rest_command.whatsapp_event
+              # Branded, window-proof: banner on top + text (no camera snapshots here).
+              - service: rest_command.whatsapp_alert
                 data: { to: "{{ to }}", home: "{{ home }}", message: "{{ message }}" }
         default:
           - service: rest_command.whatsapp_text
@@ -287,38 +278,35 @@ automation:
         target: { entity_id: camera.front_door }
         data: { filename: "/config/www/front_door.jpg" }
       - delay: "00:00:02"
-      - service: script.whatsapp
+      # Branded banner + the camera snapshot composited beneath it (see the base64 helper below).
+      - service: shell_command.whatsapp_snapshot
         data:
+          to: !secret whisperer_to
+          home: !secret whisperer_home
           message: "Motion at the front door"
-          image_url: "https://YOUR_PUBLIC_HA/local/front_door.jpg"
+          files: "/config/www/front_door.jpg"
 ```
 
-**Local images without a public URL (base64).** `mediaUrl` needs a URL Meta can fetch; for a
-local-only snapshot or clip use `mediaBase64`. HA can't base64 a file inline, so call a helper via
-`shell_command`. Store the key in `/config/.whisperer_notify_key` (chmod 600) and add
-`/config/scripts/whatsapp.py`:
+**Camera snapshots under the banner (base64).** Camera files are local, so HA can't fetch them by
+URL — the helper reads each file, base64-encodes it, and sends it in `snapshots`; Whisperer
+composites the banner + snapshots server-side and sends the branded `home_snapshot`. Store the key
+in `/config/.whisperer_notify_key` (chmod 600) and add `/config/scripts/whatsapp.py`:
 
 ```python
 #!/usr/bin/env python3
 import base64, json, os, sys, urllib.request
 to      = sys.argv[1]
-msg_b64 = sys.argv[2] if len(sys.argv) > 2 else ""   # message, base64'd by HA (quote-safe)
-path    = sys.argv[3] if len(sys.argv) > 3 else ""   # media file to attach (optional)
-mtype   = sys.argv[4] if len(sys.argv) > 4 else "image"
-template = sys.argv[5] if len(sys.argv) > 5 else ""  # "" = free-form (in-window)
+home    = sys.argv[2]                                 # home/instance name (body {{1}})
+msg_b64 = sys.argv[3] if len(sys.argv) > 3 else ""    # message, base64'd by HA (quote-safe)
+files   = sys.argv[4] if len(sys.argv) > 4 else ""    # comma-separated snapshot file paths (optional)
 message = base64.b64decode(msg_b64).decode() if msg_b64 else ""
 key = os.environ.get("WHISPERER_KEY") or open("/config/.whisperer_notify_key").read().strip()
-payload = {"to": to}
-if path:
-    with open(path, "rb") as f:
-        payload["mediaBase64"] = base64.b64encode(f.read()).decode()
-    payload["mediaType"] = mtype
-if template:
-    payload["template"] = template
-    if message:
-        payload["params"] = [message]
-elif message:
-    payload["text"] = message
+snaps = []
+for p in (f.strip() for f in files.split(",") if f.strip()):
+    with open(p, "rb") as f:
+        snaps.append(base64.b64encode(f.read()).decode())
+# Branded, window-proof alert: banner on top + (optional) snapshots tiled below, text in the body.
+payload = {"to": to, "template": "home_snapshot", "params": [home, message], "snapshots": snaps}
 req = urllib.request.Request("https://whisperer.e-goller.com/api/notify",
     data=json.dumps(payload).encode(), method="POST",
     headers={"Content-Type": "application/json", "X-Api-Key": key})
@@ -328,15 +316,15 @@ with urllib.request.urlopen(req, timeout=30) as r:
 
 ```yaml
 shell_command:
-  whatsapp_media_b64: >-
+  whatsapp_snapshot: >-
     python3 /config/scripts/whatsapp.py
-    "{{ to }}" "{{ message | base64_encode }}" "{{ filename }}"
-    "{{ media_type | default('image') }}" "{{ template | default('') }}"
+    "{{ to }}" "{{ home }}" "{{ message | base64_encode }}" "{{ files | default('') }}"
 ```
 
-Call it after `camera.snapshot` / `camera.record`, passing `filename`, `media_type`
-(`image`/`video`), and `template` (an image/video-header template for window-proof delivery, or
-`""` for free-form in-window).
+Call it after `camera.snapshot` (one file) or several captures (comma-separate the paths in
+`files`); pass no `files` for a banner-only branded alert. Pass `to` and `home` from your
+automation (e.g. `to: !secret whisperer_to`, `home: !secret whisperer_home`). Each snapshot must be
+≤16 MB and at most 10 are composited.
 
 **Caveats**
 - The recipient must be a **saved contact** in the console (unknown numbers → `404`).
