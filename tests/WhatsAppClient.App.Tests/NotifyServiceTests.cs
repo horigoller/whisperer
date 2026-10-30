@@ -15,7 +15,9 @@ public class NotifyServiceTests
     private readonly Mock<IWhatsAppMediaService> _media = new();
     private readonly Mock<IOutboundMediaStore> _mediaStore = new();
     private readonly Mock<IRealtimePublisher> _realtime = new();
+    private readonly Mock<IAlertImageComposer> _composer = new();
     private WhatsAppMessage? _sent;
+    private IReadOnlyList<byte[]>? _composed;
 
     private NotifyService Svc()
     {
@@ -23,7 +25,11 @@ public class NotifyServiceTests
             .Setup(w => w.SendMessageAsync(It.IsAny<WhatsAppMessage>(), It.IsAny<CancellationToken>()))
             .Callback<WhatsAppMessage, CancellationToken>((m, _) => _sent = m)
             .ReturnsAsync(new SendWhatsAppMessageResult("wamid.123"));
-        return new NotifyService(_repo, _whatsapp.Object, _media.Object, _mediaStore.Object, _realtime.Object);
+        _composer
+            .Setup(c => c.Compose(It.IsAny<IReadOnlyList<byte[]>>()))
+            .Callback<IReadOnlyList<byte[]>>(s => _composed = s)
+            .Returns(new byte[] { 0xFF, 0xD8, 0xFF, 0x00 }); // stand-in composed JPEG
+        return new NotifyService(_repo, _whatsapp.Object, _media.Object, _mediaStore.Object, _realtime.Object, _composer.Object);
     }
 
     // Notify only sends to known contacts, so success cases seed one.
@@ -97,6 +103,71 @@ public class NotifyServiceTests
         Assert.Equal("Wayland", header.Text);
         var body = tmpl.Template.Components!.Single(c => c.Type == "body").Parameters;
         Assert.Equal(new[] { "Wayland", "Garage door closed" }, body.Select(p => p.Text));
+    }
+
+    [Fact]
+    public async Task SendAsync_TemplateWithSnapshots_ComposesBrandedImageHeader()
+    {
+        SeedContact();
+        _mediaStore.Setup(s => s.StageAsync(It.IsAny<byte[]>(), "image", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("media-bucket", "outgoing/notify/alert.jpg"));
+        _media.Setup(m => m.UploadFromS3Async("media-bucket", "outgoing/notify/alert.jpg", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("ALERT_HANDLE");
+
+        var snapA = Convert.ToBase64String(new byte[] { 1, 2, 3, 4 });
+        var snapB = Convert.ToBase64String(new byte[] { 5, 6, 7, 8 });
+        await Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_snapshot",
+            Params: new[] { "Wayland", "Garage door open" }, Snapshots: new[] { snapA, snapB }));
+
+        Assert.Equal(2, _composed!.Count);                       // both snapshots decoded and composed
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        var header = tmpl.Template.Components!.Single(c => c.Type == "header").Parameters.Single();
+        Assert.Equal("image", header.Type);
+        Assert.Equal("ALERT_HANDLE", header.Image!.Id);          // composed image uploaded → handle in header
+        var bodyParams = tmpl.Template.Components!.Single(c => c.Type == "body").Parameters;
+        Assert.Equal(new[] { "Wayland", "Garage door open" }, bodyParams.Select(p => p.Text));
+
+        var persisted = _repo.Messages["17742625384"][0];
+        Assert.Equal("image", persisted.Type);                   // stored as image so the console renders it
+        Assert.Equal("outgoing/notify/alert.jpg", persisted.MediaS3Key);
+        Assert.Equal("home_snapshot", persisted.TemplateName);
+    }
+
+    [Fact]
+    public async Task SendAsync_TemplateWithEmptySnapshots_ComposesBannerOnly()
+    {
+        SeedContact();
+        _mediaStore.Setup(s => s.StageAsync(It.IsAny<byte[]>(), "image", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("media-bucket", "outgoing/notify/alert.jpg"));
+        _media.Setup(m => m.UploadFromS3Async(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("ALERT_HANDLE");
+
+        await Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_snapshot",
+            Params: new[] { "Wayland", "Door closed" }, Snapshots: Array.Empty<string>()));
+
+        Assert.Empty(_composed!);                                // banner-only: composer still runs, no tiles
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        var header = tmpl.Template.Components!.Single(c => c.Type == "header").Parameters.Single();
+        Assert.Equal("image", header.Type);
+        Assert.Equal("ALERT_HANDLE", header.Image!.Id);
+    }
+
+    [Fact]
+    public async Task SendAsync_SnapshotsWithoutTemplate_Throws()
+    {
+        SeedContact();
+        var snap = Convert.ToBase64String(new byte[] { 1, 2, 3, 4 });
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Text: "hi", Snapshots: new[] { snap })));
+    }
+
+    [Fact]
+    public async Task SendAsync_InvalidSnapshotBase64_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_snapshot",
+                Params: new[] { "Wayland", "x" }, Snapshots: new[] { "!!!notbase64!!!" })));
     }
 
     [Fact]

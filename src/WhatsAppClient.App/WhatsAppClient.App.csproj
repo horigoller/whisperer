@@ -11,10 +11,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Branding banner composited onto every alert image (see AlertImageComposer). -->
+    <EmbeddedResource Include="Assets\alert-banner.jpg" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.21.3" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.24.4" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.5.4" />
     <PackageReference Include="AWSSDK.ApiGatewayManagementApi" Version="4.0.3.4" />
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.9" />
