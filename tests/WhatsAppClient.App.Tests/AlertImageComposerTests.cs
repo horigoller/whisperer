@@ -46,12 +46,12 @@ public class AlertImageComposerTests
     }
 
     [Fact]
-    public void Compose_ThreeSnapshots_LaysOutTwoByTwoGrid()
+    public void Compose_ThreeSnapshots_StacksThreeFullWidthTiles()
     {
-        // 2 columns → cell 540x405; 3 tiles → 2 rows → grid 810 tall (last cell is backing).
+        // 1 column → each cell 1080x810; 3 tiles → 3 rows → 2430 tall.
         var (w, h) = Dimensions(_composer.Compose(new[] { Png(640, 480), Png(640, 480), Png(640, 480) }));
         Assert.Equal(Width, w);
-        Assert.Equal(BannerHeight + 810, h);
+        Assert.Equal(BannerHeight + 810 * 3, h);
     }
 
     [Fact]

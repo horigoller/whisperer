@@ -47,9 +47,9 @@ public sealed class AlertImageComposer : IAlertImageComposer
 
         try
         {
-            // One column for a single snapshot, two columns otherwise; 4:3 tiles.
-            var cols = tiles.Count <= 1 ? 1 : 2;
-            var rows = tiles.Count == 0 ? 0 : (tiles.Count + cols - 1) / cols;
+            // Always a single column: each snapshot is a full-width 4:3 tile stacked under the banner.
+            const int cols = 1;
+            var rows = tiles.Count;
             var cellW = CanvasWidth / cols;
             var cellH = cellW * 3 / 4;
 
