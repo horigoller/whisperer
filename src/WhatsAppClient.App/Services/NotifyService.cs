@@ -24,7 +24,9 @@ public sealed record NotifyRequest(
     string? LanguageCode = null,
     IReadOnlyList<string>? Params = null,   // body variables ({{1}}, {{2}}, …)
     string? HeaderText = null,              // text-header variable (templates with a {{1}} TEXT header)
-    IReadOnlyList<string>? Snapshots = null); // base64 images → composed with the banner into the image header
+    IReadOnlyList<string>? Snapshots = null, // base64 images → composed with the banner into the image header
+    string? CallbackUrl = null,             // HTTPS HA webhook → makes the alert actionable (adds Handle It / Ignore)
+    string? ActionData = null);             // opaque data relayed to the HA webhook when "Handle It" is tapped
 
 public sealed record NotifyResult(string WaId, string MessageId, string? WaMessageId, string Kind);
 
@@ -70,6 +72,15 @@ public sealed class NotifyService
         if (req.Snapshots is not null && !hasTemplate)
             throw new ArgumentException("'snapshots' require a 'template' (e.g. home_snapshot).");
 
+        var actionable = !string.IsNullOrWhiteSpace(req.CallbackUrl);
+        if (actionable)
+        {
+            if (!hasTemplate)
+                throw new ArgumentException("'callbackUrl' requires an actionable 'template' (e.g. home_action).");
+            if (!Uri.TryCreate(req.CallbackUrl, UriKind.Absolute, out var cb) || cb.Scheme != Uri.UriSchemeHttps)
+                throw new ArgumentException("'callbackUrl' must be an absolute https URL.");
+        }
+
         // Only send to known contacts — add the number in the console first.
         if (await _repo.GetContactAsync(waId, ct) is null) throw new ContactNotFoundException(waId);
 
@@ -89,11 +100,14 @@ public sealed class NotifyService
             kind = "template";
 
             WhatsAppTemplateParameter? header = null;
-            if (req.Snapshots is not null)
+            IReadOnlyList<(int, string)>? buttons = null;
+            if (req.Snapshots is not null || actionable)
             {
                 // Branded alert: the Whisperer banner (plus any camera snapshots) composed into one
-                // image header, then staged + uploaded like any other media header.
-                var jpeg = _composer.Compose(DecodeSnapshots(req.Snapshots));
+                // image header, then staged + uploaded like any other media header. Actionable alerts
+                // always get the branded header too (home_action has an image header).
+                var snaps = req.Snapshots is not null ? DecodeSnapshots(req.Snapshots) : new List<byte[]>();
+                var jpeg = _composer.Compose(snaps);
                 var (bucket, key) = await _mediaStore.StageAsync(jpeg, "image", "alert.jpg", ct);
                 header = HeaderParam("image", await _media.UploadFromS3Async(bucket, key, ct), null);
                 mediaS3Key = key;
@@ -119,7 +133,24 @@ public sealed class NotifyService
                     header = WhatsAppTemplateParameter.FromText(req.HeaderText);
                 preview = bodyParams.Count > 0 ? $"[{req.Template}] {string.Join(" ", bodyParams)}" : $"[template: {req.Template}]";
             }
-            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams, header);
+            if (actionable)
+            {
+                // Two quick-reply buttons, payloads keyed to this binding: "H:" handles, "I:" ignores.
+                buttons = new (int, string)[] { (0, $"H:{id}"), (1, $"I:{id}") };
+                var now = DateTimeOffset.UtcNow;
+                await _repo.PutButtonBindingAsync(new ButtonBinding
+                {
+                    Token = id,
+                    WaId = waId,
+                    Home = bodyParams.Count > 0 ? bodyParams[0] : null,
+                    CallbackUrl = req.CallbackUrl!,
+                    Data = req.ActionData,
+                    Status = "active",
+                    ExpiresAt = now.AddMinutes(ActionWindowMinutes).ToUnixTimeSeconds(),
+                    Ttl = now.AddDays(1).ToUnixTimeSeconds(),
+                }, ct);
+            }
+            message = OutboundMessageFactory.Template(phoneE164, id, req.Template!, req.LanguageCode, bodyParams, header, buttons);
         }
         else if (hasMedia)
         {
@@ -156,6 +187,9 @@ public sealed class NotifyService
 
     /// <summary>Max number of snapshots composited into one alert image.</summary>
     private const int MaxSnapshots = 10;
+
+    /// <summary>How long after send an actionable alert's "Handle It" button stays live.</summary>
+    private const int ActionWindowMinutes = 5;
 
     /// <summary>Decodes the base64 snapshots, enforcing count/size limits; invalid base64 throws.</summary>
     private static List<byte[]> DecodeSnapshots(IReadOnlyList<string> snapshots)

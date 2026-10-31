@@ -85,6 +85,20 @@ public sealed class InMemoryAppRepository : IAppRepository
         return Task.FromResult(true);
     }
 
+    public Dictionary<string, ButtonBinding> Bindings { get; } = new();
+    public Task PutButtonBindingAsync(ButtonBinding binding, CancellationToken ct = default) { Bindings[binding.Token] = binding; return Task.CompletedTask; }
+    public Task<ButtonBinding?> GetButtonBindingAsync(string token, CancellationToken ct = default) =>
+        Task.FromResult(Bindings.TryGetValue(token, out var b) ? b : null);
+    public Task<bool> TryConsumeButtonBindingAsync(string token, string newStatus, long nowUnix, CancellationToken ct = default)
+    {
+        if (Bindings.TryGetValue(token, out var b) && b.Status == "active" && b.ExpiresAt >= nowUnix)
+        {
+            b.Status = newStatus;
+            return Task.FromResult(true);
+        }
+        return Task.FromResult(false);
+    }
+
     public Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default) { Challenges[challenge.ChallengeId] = challenge; return Task.CompletedTask; }
     public Task<AuthChallenge?> GetAuthChallengeAsync(string challengeId, CancellationToken ct = default) =>
         Task.FromResult(Challenges.GetValueOrDefault(challengeId));

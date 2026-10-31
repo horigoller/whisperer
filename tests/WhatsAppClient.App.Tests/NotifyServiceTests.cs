@@ -153,6 +153,58 @@ public class NotifyServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_Actionable_AddsTwoQuickReplyButtonsAndStoresBinding()
+    {
+        SeedContact();
+        _mediaStore.Setup(s => s.StageAsync(It.IsAny<byte[]>(), "image", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("media-bucket", "outgoing/notify/alert.jpg"));
+        _media.Setup(m => m.UploadFromS3Async(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("ALERT_HANDLE");
+
+        var before = DateTimeOffset.UtcNow;
+        var result = await Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_action",
+            Params: new[] { "Wayland", "Garage door open" },
+            CallbackUrl: "https://ha.example.com/api/webhook/abc", ActionData: "close_garage"));
+
+        var tmpl = Assert.IsType<WhatsAppTemplateMessage>(_sent);
+        Assert.Equal("image", tmpl.Template.Components!.Single(c => c.Type == "header").Parameters.Single().Type);
+        var buttons = tmpl.Template.Components!.Where(c => c.Type == "button").ToList();
+        Assert.Equal(2, buttons.Count);
+        Assert.Equal("quick_reply", buttons[0].SubType);
+        Assert.Equal("0", buttons[0].Index);
+        Assert.Equal($"H:{result.MessageId}", buttons[0].Parameters.Single().Payload);
+        Assert.Equal("1", buttons[1].Index);
+        Assert.Equal($"I:{result.MessageId}", buttons[1].Parameters.Single().Payload);
+
+        var binding = _repo.Bindings[result.MessageId];
+        Assert.Equal("active", binding.Status);
+        Assert.Equal("https://ha.example.com/api/webhook/abc", binding.CallbackUrl);
+        Assert.Equal("close_garage", binding.Data);
+        Assert.Equal("Wayland", binding.Home);
+        Assert.Equal("17742625384", binding.WaId);
+        // Expiry ~5 minutes out.
+        Assert.InRange(binding.ExpiresAt, before.AddMinutes(4).ToUnixTimeSeconds(), before.AddMinutes(6).ToUnixTimeSeconds());
+    }
+
+    [Fact]
+    public async Task SendAsync_CallbackUrlWithoutTemplate_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Text: "hi",
+                CallbackUrl: "https://ha.example.com/api/webhook/abc")));
+    }
+
+    [Fact]
+    public async Task SendAsync_NonHttpsCallbackUrl_Throws()
+    {
+        SeedContact();
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            Svc().SendAsync(new NotifyRequest("+17742625384", Template: "home_action",
+                Params: new[] { "Wayland", "x" }, CallbackUrl: "http://ha.example.com/api/webhook/abc")));
+    }
+
+    [Fact]
     public async Task SendAsync_SnapshotsWithoutTemplate_Throws()
     {
         SeedContact();

@@ -38,6 +38,7 @@ public static class AppServiceCollectionExtensions
         services.AddSingleton<IRealtimePublisher, RealtimePublisher>();
         services.AddSingleton<IOutboundMediaStore, S3OutboundMediaStore>();
         services.AddSingleton<IAlertImageComposer, AlertImageComposer>();
+        services.AddSingleton<IHaCallbackClient, HaCallbackClient>();
 
         services.AddScoped<AuthService>();
         services.AddScoped<ConversationService>();

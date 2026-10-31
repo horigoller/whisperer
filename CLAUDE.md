@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 118 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 126 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (118 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (126 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →
@@ -244,7 +244,14 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   empty** (local/tests).
 - `Ingest/AppIngestProcessor` — handles EventBridge `MessageReceived` (self-register contact,
   append message, set window from the message timestamp, publish `message`) and `StatusUpdated`
-  (correlate by `biz_opaque` and publish `status`, or record an auth delivery error).
+  (correlate by `biz_opaque` and publish `status`, or record an auth delivery error). For an
+  inbound `button` tap on an actionable alert it resolves the `ButtonBinding` from the payload
+  (`H:`/`I:` + token): **Handle It** fires the HA callback via `IHaCallbackClient` exactly once if
+  still `active` and within the 5-minute window (then ✅, or ⚠️ if the POST failed), **Ignore**
+  disables the binding (🚫), and a late/already-resolved tap reacts ⌛ with no callback. Reactions
+  target the alert's wamid (`message.context.id`) via `IWhatsAppMessageService.SendReactionAsync`.
+- `Services/HaCallbackClient` (`IHaCallbackClient`) — posts the tap `{ action, data, home, waId,
+  token, tappedAt }` as JSON to the binding's HTTPS webhook; never throws (a failure returns false).
 - `AppServiceCollectionExtensions.AddWhatsAppApp` wires it all up (`ITemplateService`,
   `IRealtimePublisher`, repo, token/secret services, and the domain services).
 
@@ -260,8 +267,9 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   `AuthFilter`/`AdminFilter`/`ApiKeyFilter` endpoint filters.
 - `POST /api/notify` — machine-to-machine send for non-interactive clients (e.g. Home Assistant).
   Gated by `ApiKeyFilter` (`X-Api-Key` vs `App.NotifyApiKey`, constant-time compare; 503 when the
-  key is unset). Body `{ to, template?, params?, headerText?, snapshots?, languageCode?, text?,
-  mediaUrl?|mediaBase64?, mediaType?(image|video), caption?, filename? }`. Delegates to
+  key is unset). Body `{ to, template?, params?, headerText?, snapshots?, callbackUrl?, actionData?,
+  languageCode?, text?, mediaUrl?|mediaBase64?, mediaType?(image|video), caption?, filename? }`.
+  Delegates to
   `NotifyService` (in App): normalizes
   the phone, requires an existing contact (`ContactNotFoundException` → 404; add the number in the
   console first), then sends a `template` (window-proof; the default alert template is the
@@ -276,6 +284,14 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   stamp `biz_opaque` for status correlation, persist the outbound message, and publish a realtime
   event. Text/media are free-form (in-window only); templates deliver any time. `NotifyApiKey` and
   `MediaBucketName` come from the `App` config section.
+  **Actionable alerts:** passing `callbackUrl` (an HTTPS Home Assistant webhook) makes the alert
+  actionable — it must use a template that has two quick-reply buttons (the branded `home_action`
+  template: "Handle It" / "Ignore"). `NotifyService` composes the branded image header (same as
+  `snapshots`), sets each button's postback payload to `H:{id}` / `I:{id}`, and stores a
+  `ButtonBinding` (`BTN#{id}`) with a **5-minute `ExpiresAt`** (plus a ~1-day DynamoDB TTL) holding
+  the `callbackUrl` + `actionData`. When the recipient taps a button, the inbound `button` message
+  flows to `AppIngestProcessor` (below), which fires the callback. Informational alerts omit
+  `callbackUrl` and use the button-less `home_snapshot`.
 - `StaticSite` serves the built SPA from the WebBucket (content-typed, including
   `.webmanifest`); a `MapFallback("/{**path}")` serves files and falls back to `index.html` for
   client-side routes (the parameterless `MapFallback` `{*path:nonfile}` would 404 file paths).
@@ -284,8 +300,10 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
 
 - Thin EventBridge handler that builds the App DI container and delegates to
   `AppIngestProcessor`. Granted `execute-api:ManageConnections` and the `App__RealtimeEndpoint`
-  env so it can push realtime events. Source-gen JSON serializer, case-insensitive for the
-  PascalCase EventBridge `detail` keys.
+  env so it can push realtime events, plus `social-messaging:SendWhatsAppMessage` and the
+  `WhatsApp__OriginationPhoneNumberId`/`WhatsApp__MetaApiVersion` env so it can react (✅/🚫/⌛) to
+  button taps and reach actionable alerts' HA webhooks. Source-gen JSON serializer, case-insensitive
+  for the PascalCase EventBridge `detail` keys.
 
 ### WhatsAppClient.WebSocketLambda (class-handler style; two SAM handlers, one artifact)
 

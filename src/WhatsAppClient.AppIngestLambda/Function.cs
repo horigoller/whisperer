@@ -7,6 +7,8 @@ using WhatsAppClient.App.Configuration;
 using WhatsAppClient.App.Ingest;
 using WhatsAppClient.App.Persistence;
 using WhatsAppClient.App.Realtime;
+using WhatsAppClient.App.Services;
+using WhatsAppClient.Core;
 
 namespace WhatsAppClient.AppIngestLambda;
 
@@ -38,8 +40,11 @@ public sealed class Function
         services.AddLogging();
         services.AddOptions<AppOptions>().Bind(configuration.GetSection(AppOptions.SectionName));
         services.TryAddAWSService<IAmazonDynamoDB>();
+        // Core WhatsApp messaging so we can react (✅/🚫/⌛) to button taps.
+        services.AddWhatsAppMessaging(configuration);
         services.AddSingleton<IAppRepository, DynamoAppRepository>();
         services.AddSingleton<IRealtimePublisher, RealtimePublisher>();
+        services.AddSingleton<IHaCallbackClient, HaCallbackClient>();
         services.AddSingleton<AppIngestProcessor>();
 
         return services.BuildServiceProvider().GetRequiredService<AppIngestProcessor>();

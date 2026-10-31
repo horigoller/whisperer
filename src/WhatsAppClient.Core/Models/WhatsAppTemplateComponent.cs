@@ -38,13 +38,21 @@ public sealed class WhatsAppTemplateComponent
 public sealed class WhatsAppTemplateParameter
 {
     /// <summary>
-    /// One of "text", "currency", "date_time", "image", "document", or "video".
+    /// One of "text", "currency", "date_time", "image", "document", "video", or "payload"
+    /// (a quick-reply button's postback payload).
     /// </summary>
     [JsonPropertyName("type")]
     public required string Type { get; init; }
 
     [JsonPropertyName("text")]
     public string? Text { get; init; }
+
+    /// <summary>
+    /// The postback payload for a <c>quick_reply</c> button component; sent back as the inbound
+    /// <c>button.payload</c> when the recipient taps it.
+    /// </summary>
+    [JsonPropertyName("payload")]
+    public string? Payload { get; init; }
 
     [JsonPropertyName("currency")]
     public WhatsAppTemplateCurrency? Currency { get; init; }
@@ -62,6 +70,9 @@ public sealed class WhatsAppTemplateParameter
     public WhatsAppTemplateMedia? Video { get; init; }
 
     public static WhatsAppTemplateParameter FromText(string text) => new() { Type = "text", Text = text };
+
+    /// <summary>A <c>quick_reply</c> button's postback payload parameter.</summary>
+    public static WhatsAppTemplateParameter FromPayload(string payload) => new() { Type = "payload", Payload = payload };
 }
 
 public sealed class WhatsAppTemplateCurrency

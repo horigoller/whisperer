@@ -2,8 +2,10 @@ using Microsoft.Extensions.Logging;
 using WhatsAppClient.App.Models;
 using WhatsAppClient.App.Persistence;
 using WhatsAppClient.App.Realtime;
+using WhatsAppClient.App.Services;
 using WhatsAppClient.App.Util;
 using WhatsAppClient.Core.Models.Inbound;
+using WhatsAppClient.Core.Services;
 
 namespace WhatsAppClient.App.Ingest;
 
@@ -17,12 +19,21 @@ public sealed class AppIngestProcessor
     private static readonly TimeSpan Window = TimeSpan.FromHours(24);
     private readonly IAppRepository _repo;
     private readonly IRealtimePublisher _realtime;
+    private readonly IWhatsAppMessageService _whatsapp;
+    private readonly IHaCallbackClient _ha;
     private readonly ILogger<AppIngestProcessor> _logger;
 
-    public AppIngestProcessor(IAppRepository repo, IRealtimePublisher realtime, ILogger<AppIngestProcessor> logger)
+    public AppIngestProcessor(
+        IAppRepository repo,
+        IRealtimePublisher realtime,
+        IWhatsAppMessageService whatsapp,
+        IHaCallbackClient ha,
+        ILogger<AppIngestProcessor> logger)
     {
         _repo = repo;
         _realtime = realtime;
+        _whatsapp = whatsapp;
+        _ha = ha;
         _logger = logger;
     }
 
@@ -32,6 +43,8 @@ public sealed class AppIngestProcessor
         {
             case "MessageReceived" when evt.Detail?.Message is { } message:
                 await IngestMessageAsync(message, evt.Detail.ContactName, evt.Detail.MediaS3Key, ct);
+                if (message.Type == "button" && !string.IsNullOrEmpty(message.Button?.Payload))
+                    await HandleButtonTapAsync(message, ct);
                 break;
 
             case "StatusUpdated" when evt.Detail?.Status is { Status: { } status } s:
@@ -69,6 +82,84 @@ public sealed class AppIngestProcessor
             default:
                 _logger.LogInformation("Ignoring event detail-type={DetailType}", evt.DetailType);
                 break;
+        }
+    }
+
+    // Emoji reactions acknowledging a button tap on the recipient's phone.
+    private const string ReactHandled = "✅";
+    private const string ReactIgnored = "🚫";
+    private const string ReactExpired = "⌛";
+    private const string ReactFailed = "⚠️";
+
+    /// <summary>
+    /// Resolves a tapped quick-reply button to its binding and acts: "Handle It" POSTs to the HA
+    /// webhook if the binding is still active and unexpired; "Ignore" disables it. The recipient
+    /// sees an emoji reaction on the original alert for feedback. Best-effort — never throws.
+    /// </summary>
+    private async Task HandleButtonTapAsync(WhatsAppInboundMessage message, CancellationToken ct)
+    {
+        var payload = message.Button!.Payload!;
+        var sep = payload.IndexOf(':');
+        if (sep <= 0)
+        {
+            _logger.LogInformation("Button payload {Payload} is not an action binding; ignoring", payload);
+            return;
+        }
+        var kind = payload[..sep];      // "H" (handle) or "I" (ignore)
+        var token = payload[(sep + 1)..];
+
+        var binding = await _repo.GetButtonBindingAsync(token, ct);
+        if (binding is null)
+        {
+            _logger.LogInformation("No active binding for button token {Token}", token);
+            return;
+        }
+
+        var waId = PhoneNumbers.ToWaId(message.From ?? string.Empty);
+        var to = waId.Length > 0 ? $"+{waId}" : null;
+        var alertId = message.Context?.Id;   // the wamid of the alert carrying the button, for reactions
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        if (kind == "I")
+        {
+            // Ignore: disable the callback so a later "Handle It" cannot fire.
+            if (await _repo.TryConsumeButtonBindingAsync(token, "ignored", now, ct))
+                await ReactAsync(to, alertId, ReactIgnored, ct);
+            return;
+        }
+
+        if (kind != "H") return;
+
+        // Handle It: fire exactly once, only while active and within the 5-minute window.
+        if (binding.Status != "active" || now > binding.ExpiresAt
+            || !await _repo.TryConsumeButtonBindingAsync(token, "consumed", now, ct))
+        {
+            await ReactAsync(to, alertId, ReactExpired, ct);
+            return;
+        }
+
+        var posted = await _ha.PostAsync(binding.CallbackUrl, new
+        {
+            action = "handle",
+            data = binding.Data,
+            home = binding.Home,
+            waId = binding.WaId,
+            token,
+            tappedAt = DateTimeOffset.UtcNow.ToString("o"),
+        }, ct);
+        await ReactAsync(to, alertId, posted ? ReactHandled : ReactFailed, ct);
+    }
+
+    private async Task ReactAsync(string? to, string? alertMessageId, string emoji, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(to) || string.IsNullOrEmpty(alertMessageId)) return;
+        try
+        {
+            await _whatsapp.SendReactionAsync(to, alertMessageId, emoji, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to react {Emoji} to alert {AlertId}", emoji, alertMessageId);
         }
     }
 
