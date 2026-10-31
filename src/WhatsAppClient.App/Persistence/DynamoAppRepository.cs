@@ -298,6 +298,70 @@ public sealed class DynamoAppRepository : IAppRepository
         }
     }
 
+    // ---- Actionable-alert button bindings ----------------------------------
+    public Task PutButtonBindingAsync(ButtonBinding b, CancellationToken ct = default)
+    {
+        var item = new Dictionary<string, AttributeValue>
+        {
+            ["PK"] = S(BindingPk(b.Token)),
+            ["SK"] = S("BTN"),
+            ["entity"] = S("button"),
+            ["Token"] = S(b.Token),
+            ["WaId"] = S(b.WaId),
+            ["CallbackUrl"] = S(b.CallbackUrl),
+            ["Status"] = S(b.Status),
+            ["ExpiresAt"] = N(b.ExpiresAt),
+            ["ttl"] = N(b.Ttl),
+        };
+        if (!string.IsNullOrEmpty(b.Home)) item["Home"] = S(b.Home);
+        if (!string.IsNullOrEmpty(b.Data)) item["Data"] = S(b.Data);
+        return _db.PutItemAsync(new PutItemRequest { TableName = _table, Item = item }, ct);
+    }
+
+    public async Task<ButtonBinding?> GetButtonBindingAsync(string token, CancellationToken ct = default)
+    {
+        var item = await GetAsync(BindingPk(token), "BTN", ct);
+        if (item is null) return null;
+        return new ButtonBinding
+        {
+            Token = GetS(item, "Token"),
+            WaId = GetS(item, "WaId"),
+            Home = GetSOrNull(item, "Home"),
+            CallbackUrl = GetS(item, "CallbackUrl"),
+            Data = GetSOrNull(item, "Data"),
+            Status = GetS(item, "Status"),
+            ExpiresAt = GetN(item, "ExpiresAt"),
+            Ttl = GetN(item, "ttl"),
+        };
+    }
+
+    public async Task<bool> TryConsumeButtonBindingAsync(string token, string newStatus, long nowUnix, CancellationToken ct = default)
+    {
+        try
+        {
+            await _db.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _table,
+                Key = new() { ["PK"] = S(BindingPk(token)), ["SK"] = S("BTN") },
+                UpdateExpression = "SET #s = :new",
+                // Fire-once: only an active binding that hasn't expired may transition.
+                ConditionExpression = "attribute_exists(PK) AND #s = :active AND ExpiresAt >= :now",
+                ExpressionAttributeNames = new() { ["#s"] = "Status" },
+                ExpressionAttributeValues = new()
+                {
+                    [":new"] = S(newStatus),
+                    [":active"] = S("active"),
+                    [":now"] = N(nowUnix),
+                },
+            }, ct);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false; // already consumed/ignored, expired, or gone
+        }
+    }
+
     public Task PutAuthChallengeAsync(AuthChallenge c, CancellationToken ct = default)
     {
         var item = new Dictionary<string, AttributeValue>
@@ -407,6 +471,7 @@ public sealed class DynamoAppRepository : IAppRepository
     private static string UserPk(string u) => $"USER#{u.ToLowerInvariant()}";
     private static string ContactPk(string waId) => $"CONTACT#{waId}";
     private static string AuthPk(string id) => $"AUTH#{id}";
+    private static string BindingPk(string token) => $"BTN#{token}";
 
     private static AttributeValue S(string v) => new() { S = v };
     private static AttributeValue N(long v) => new() { N = v.ToString() };

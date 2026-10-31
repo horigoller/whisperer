@@ -46,6 +46,10 @@ public sealed class WhatsAppInboundMessage
     [JsonPropertyName("reaction")]
     public WhatsAppInboundReaction? Reaction { get; init; }
 
+    /// <summary>Present when the customer tapped a template quick-reply button.</summary>
+    [JsonPropertyName("button")]
+    public WhatsAppInboundButton? Button { get; init; }
+
     /// <summary>Present when the customer replied to a previous message.</summary>
     [JsonPropertyName("context")]
     public WhatsAppMessageContext? Context { get; init; }
@@ -86,6 +90,19 @@ public sealed class WhatsAppMediaInfo
     /// <summary>Original filename, present for documents.</summary>
     [JsonPropertyName("filename")]
     public string? Filename { get; init; }
+}
+
+/// <summary>
+/// The payload of a tapped template quick-reply button. <see cref="Text"/> is the button's
+/// visible label; <see cref="Payload"/> is the postback value set on the original send.
+/// </summary>
+public sealed class WhatsAppInboundButton
+{
+    [JsonPropertyName("text")]
+    public string? Text { get; init; }
+
+    [JsonPropertyName("payload")]
+    public string? Payload { get; init; }
 }
 
 public sealed class WhatsAppInboundReaction

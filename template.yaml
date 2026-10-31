@@ -380,6 +380,8 @@ Resources:
         Variables:
           App__TableName: !Ref AppTable
           App__RealtimeEndpoint: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/wss"
+          WhatsApp__OriginationPhoneNumberId: !Ref OriginationPhoneNumberId
+          WhatsApp__MetaApiVersion: !Ref MetaApiVersion
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AppTable
@@ -387,6 +389,11 @@ Resources:
             - Effect: Allow
               Action: execute-api:ManageConnections
               Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - social-messaging:SendWhatsAppMessage
+              Resource: "*"
       Events:
         Inbound:
           Type: EventBridgeRule

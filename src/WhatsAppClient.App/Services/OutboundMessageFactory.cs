@@ -11,7 +11,8 @@ internal static class OutboundMessageFactory
     /// </summary>
     public static WhatsAppTemplateMessage Template(
         string to, string id, string name, string? languageCode, IReadOnlyList<string> bodyParams,
-        WhatsAppTemplateParameter? header = null)
+        WhatsAppTemplateParameter? header = null,
+        IReadOnlyList<(int Index, string Payload)>? quickReplyButtons = null)
     {
         var parts = new List<WhatsAppTemplateComponent>();
         if (header is not null)
@@ -22,6 +23,15 @@ internal static class OutboundMessageFactory
                 Type = "body",
                 Parameters = bodyParams.Select(WhatsAppTemplateParameter.FromText).ToList(),
             });
+        if (quickReplyButtons is not null)
+            foreach (var (index, payload) in quickReplyButtons)
+                parts.Add(new WhatsAppTemplateComponent
+                {
+                    Type = "button",
+                    SubType = "quick_reply",
+                    Index = index.ToString(),
+                    Parameters = new[] { WhatsAppTemplateParameter.FromPayload(payload) },
+                });
         IReadOnlyList<WhatsAppTemplateComponent>? components = parts.Count > 0 ? parts : null;
         return new WhatsAppTemplateMessage
         {

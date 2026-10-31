@@ -41,6 +41,20 @@ public interface IAppRepository
     /// </summary>
     Task<bool> TryStartLoginAsync(string username, int cooldownSeconds, CancellationToken ct = default);
 
+    // ---- Actionable-alert button bindings ----------------------------------
+    /// <summary>Store a quick-reply button binding (actionable alert → HA callback).</summary>
+    Task PutButtonBindingAsync(ButtonBinding binding, CancellationToken ct = default);
+
+    /// <summary>Fetch a button binding by its token, or null if none/expired-and-cleaned.</summary>
+    Task<ButtonBinding?> GetButtonBindingAsync(string token, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically transition a binding from <c>active</c> to <paramref name="newStatus"/>, but only
+    /// if it is still active and not past its expiry (<paramref name="nowUnix"/> ≤ ExpiresAt).
+    /// Returns true if this call performed the transition (so the caller may fire exactly once).
+    /// </summary>
+    Task<bool> TryConsumeButtonBindingAsync(string token, string newStatus, long nowUnix, CancellationToken ct = default);
+
     Task PutAuthChallengeAsync(AuthChallenge challenge, CancellationToken ct = default);
     Task<AuthChallenge?> GetAuthChallengeAsync(string challengeId, CancellationToken ct = default);
 
