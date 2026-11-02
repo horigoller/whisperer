@@ -56,6 +56,27 @@ public class FunctionTests
             Times.Never);
     }
 
+    [Theory]
+    [InlineData("button")]
+    [InlineData("interactive")]
+    public async Task FunctionHandler_ButtonTap_SkipsAutoReply(string type)
+    {
+        var evt = new AutoReplyEvent
+        {
+            Detail = new AutoReplyDetail
+            {
+                Message = new WhatsAppInboundMessage { From = "17742625384", Id = "wamid.BTN", Type = type },
+            },
+        };
+
+        var result = await CreateFunction().FunctionHandler(evt, _context);
+
+        Assert.False(result.Replied);
+        _messageService.Verify(
+            s => s.SendTextMessageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     [Fact]
     public async Task FunctionHandler_PreservesLeadingPlus()
     {

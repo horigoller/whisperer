@@ -55,6 +55,14 @@ public sealed class Function
             return new AutoReplyResult { Replied = false, ErrorMessage = "No sender in event." };
         }
 
+        // Quick-reply taps (e.g. an actionable alert's Handle It / Ignore) are answered by
+        // AppIngestProcessor with a reaction; they must not also get the generic acknowledgement.
+        if (input.Detail?.Message?.Type is "button" or "interactive")
+        {
+            context.Logger.LogInformation("Auto-reply skipped: button tap.");
+            return new AutoReplyResult { Replied = false, ErrorMessage = "Button tap; no auto-reply." };
+        }
+
         // Inbound 'from' is a wa_id (no leading '+'); the send API expects E.164.
         var recipient = from.StartsWith('+') ? from : $"+{from}";
 

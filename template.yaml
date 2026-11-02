@@ -235,6 +235,8 @@ Resources:
           Type: EventBridgeRule
           Properties:
             EventBusName: !Ref WhatsAppEventBus
+            # Auto-reply is switched off; set to ENABLED to send the acknowledgement again.
+            State: DISABLED
             Pattern:
               source:
                 - whatsapp.inbound
