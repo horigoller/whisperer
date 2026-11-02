@@ -31,7 +31,7 @@ restrictions). Use `export PATH="$HOME/.dotnet:$HOME/.dotnet/tools:$PATH"` befor
 
 ```bash
 dotnet build                 # build the whole solution
-dotnet test                  # run all tests (Core + App + four Lambdas), 126 tests
+dotnet test                  # run all tests (Core + App + four Lambdas), 128 tests
 dotnet test --filter "FullyQualifiedName~WhatsAppMessageServiceTests"   # run one test class
 dotnet test --filter "FullyQualifiedName~SendTextMessageAsync_WithEmptyBody_ThrowsArgumentException"  # single test
 
@@ -121,7 +121,7 @@ src/WhatsAppClient.WebSocketLambda/ WebSocket API authorizer + $connect/$disconn
 app/web/                            React + TypeScript + Vite SPA (the console)
 app/deploy-web.sh                   Build + sync the SPA to the WebBucket
 template.yaml                       SAM stack (see Overview for the resource list)
-tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (126 tests)
+tests/*.Tests/                      Six test projects — Core, App, and the Send/Receive/AutoReply/WebSocket Lambdas (128 tests)
 ```
 
 Inbound flow: `Customer → Meta → AWS End User Messaging Social → SNS (event destination) →
@@ -208,7 +208,11 @@ with `ApiFunction`/`AppIngestFunction` pushing events back via `@connections Pos
   EventBridge rule (`source: whatsapp.inbound`, `detail-type: MessageReceived`). Sends the
   configured acknowledgement via `IWhatsAppMessageService.SendTextMessageAsync`. Never throws.
   **Loop-safe**: the reply only produces `StatusUpdated` events, never `MessageReceived`, so the
-  rule cannot re-trigger. Ack text is configurable via `AutoReply__Message`.
+  rule cannot re-trigger. Ack text is configurable via `AutoReply__Message`. Quick-reply taps
+  (`button`/`interactive` messages, e.g. an actionable alert's Handle It / Ignore) are skipped —
+  `AppIngestProcessor` answers those with a reaction instead. **Currently disabled**: the
+  `InboundMessage` EventBridge rule in `template.yaml` is `State: DISABLED`; set it to `ENABLED`
+  and redeploy to turn the acknowledgement back on.
 
 ### WhatsAppClient.App (console domain library)
 
